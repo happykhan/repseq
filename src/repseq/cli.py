@@ -3,6 +3,7 @@
 import click
 
 from repseq.select import run_select
+
 from repseq.evaluate import run_evaluate
 from repseq.sweep import run_sweep
 
@@ -33,12 +34,19 @@ def cli():
     type=click.Path(exists=True, dir_okay=False),
     help="Pre-run Kleborate TSV. If absent, kleborate is run.",
 )
+@click.option(
+    "--plasmid-finder",
+    "plasmidfinder_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-run PlasmidFinder merged TSV. If absent, PlasmidFinder is run automatically.",
+)
 @click.option("--n", "n_select", default=10, type=int, help="Number of isolates to select.")
 @click.option(
     "--alpha",
     default=0.5,
     type=click.FloatRange(0.0, 1.0),
-    help="Budget split: alpha*N phylogenetic, (1-alpha)*N AMR/replicon.",
+    help="Budget split: alpha=1.0 → pure phylo, alpha=0.0 → pure AMR/replicon.",
 )
 @click.option(
     "--output-dir",
@@ -46,12 +54,13 @@ def cli():
     type=click.Path(file_okay=False),
     help="Output directory (created if needed).",
 )
-def select(assemblies, tree, kleborate_tsv, n_select, alpha, output_dir):
+def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, n_select, alpha, output_dir):
     """Select N representative isolates from an assembly collection."""
     run_select(
         assemblies_dir=assemblies,
         tree_path=tree,
         kleborate_path=kleborate_tsv,
+        plasmidfinder_path=plasmidfinder_tsv,
         n=n_select,
         alpha=alpha,
         output_dir=output_dir,

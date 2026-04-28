@@ -193,6 +193,78 @@ def parse_kleborate(kleborate_path: str) -> tuple[pd.DataFrame, list[str]]:
     return binary_df, all_features
 
 
+def run_plasmidfinder(assemblies_dir: str, output_dir: str) -> str:
+    """Run PlasmidFinder on all assemblies, return path to merged results TSV."""
+    pf_outdir = os.path.join(output_dir, "plasmidfinder_output")
+    os.makedirs(pf_outdir, exist_ok=True)
+
+    patterns = ["*.fasta", "*.fa", "*.fna"]
+    assembly_files: list[str] = []
+    for pat in patterns:
+        assembly_files.extend(glob.glob(os.path.join(assemblies_dir, pat)))
+    assembly_files = sorted(set(assembly_files))
+
+    if not assembly_files:
+        raise click.ClickException(f"No assembly files found in {assemblies_dir}")
+
+    click.echo(f"Running PlasmidFinder on {len(assembly_files)} assemblies...")
+    merged_rows = []
+    for asm in assembly_files:
+        sample_id = Path(asm).stem
+        sample_outdir = os.path.join(pf_outdir, sample_id)
+        os.makedirs(sample_outdir, exist_ok=True)
+        cmd = ["plasmidfinder.py", "-i", asm, "-o", sample_outdir, "-p", "enterobacteriaceae"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        results_tsv = os.path.join(sample_outdir, "results_tab.tsv")
+        if os.path.exists(results_tsv):
+            try:
+                df = pd.read_csv(results_tsv, sep="\t")
+                if "Plasmid" in df.columns:
+                    df["sample_id"] = sample_id
+                    merged_rows.append(df[["sample_id", "Plasmid"]])
+            except Exception:
+                pass
+
+    merged_path = os.path.join(output_dir, "plasmidfinder.tsv")
+    if merged_rows:
+        pd.concat(merged_rows, ignore_index=True).to_csv(merged_path, sep="\t", index=False)
+    else:
+        pd.DataFrame(columns=["sample_id", "Plasmid"]).to_csv(merged_path, sep="\t", index=False)
+    click.echo(f"PlasmidFinder output written to {merged_path}")
+    return merged_path
+
+
+def parse_plasmidfinder(pf_path: str, binary_matrix: pd.DataFrame) -> pd.DataFrame:
+    """Parse PlasmidFinder TSV and add replicon columns to binary_matrix.
+
+    Returns updated binary_matrix with REP:<inc_type> columns added.
+    """
+    try:
+        df = pd.read_csv(pf_path, sep="\t")
+    except Exception:
+        click.echo("Warning: could not parse PlasmidFinder output.")
+        return binary_matrix
+
+    if df.empty or "Plasmid" not in df.columns or "sample_id" not in df.columns:
+        click.echo("Warning: PlasmidFinder output is empty or missing expected columns.")
+        return binary_matrix
+
+    for _, row in df.iterrows():
+        sample_id = str(row["sample_id"])
+        plasmid = str(row["Plasmid"]).strip()
+        if not plasmid or plasmid in ("-", "nan"):
+            continue
+        feat_name = f"REP:{plasmid}"
+        if sample_id in binary_matrix.index:
+            if feat_name not in binary_matrix.columns:
+                binary_matrix[feat_name] = 0
+            binary_matrix.loc[sample_id, feat_name] = 1
+
+    rep_cols = [c for c in binary_matrix.columns if c.startswith("REP:")]
+    click.echo(f"PlasmidFinder added {len(rep_cols)} replicon features")
+    return binary_matrix
+
+
 def greedy_set_cover(
     binary_matrix: pd.DataFrame,
     exclude_samples: list[str],

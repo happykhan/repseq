@@ -6,7 +6,7 @@ import click
 import pandas as pd
 
 from repseq.phylo import run_mashtree, run_parnas, find_assemblies
-from repseq.amr_cover import run_kleborate, parse_kleborate, greedy_set_cover
+from repseq.amr_cover import run_kleborate, parse_kleborate, greedy_set_cover, run_plasmidfinder, parse_plasmidfinder
 from repseq.plots import plot_elbow, plot_scatter, plot_tree_heatmap
 
 
@@ -14,6 +14,7 @@ def run_select(
     assemblies_dir: str,
     tree_path: str | None,
     kleborate_path: str | None,
+    plasmidfinder_path: str | None,
     n: int,
     alpha: float,
     output_dir: str,
@@ -43,6 +44,12 @@ def run_select(
     # Step 5: parse Kleborate
     binary_matrix, features = parse_kleborate(kleborate_path)
     click.echo(f"Kleborate matrix: {binary_matrix.shape[0]} samples x {binary_matrix.shape[1]} features")
+
+    # Step 5b: run PlasmidFinder and add replicon features
+    if plasmidfinder_path is None:
+        plasmidfinder_path = run_plasmidfinder(assemblies_dir, output_dir)
+    binary_matrix = parse_plasmidfinder(plasmidfinder_path, binary_matrix)
+    features = list(binary_matrix.columns)
 
     # Step 6: greedy set cover for AMR/replicon diversity
     amr_selected = greedy_set_cover(binary_matrix, phylo_selected, n_amr)

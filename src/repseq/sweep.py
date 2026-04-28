@@ -30,6 +30,10 @@ def run_sweep(
         from repseq.amr_cover import run_kleborate
         kleborate_path = run_kleborate(assemblies_dir, output_dir)
 
+    # Pre-run PlasmidFinder once and reuse across sweeps
+    from repseq.amr_cover import run_plasmidfinder
+    plasmidfinder_path = run_plasmidfinder(assemblies_dir, output_dir)
+
     alphas = [round(a * 0.1, 1) for a in range(11)]
     results = []
 
@@ -46,6 +50,7 @@ def run_sweep(
             assemblies_dir=assemblies_dir,
             tree_path=tree_path,
             kleborate_path=kleborate_path,
+            plasmidfinder_path=plasmidfinder_path,
             n=n,
             alpha=alpha,
             output_dir=sweep_dir,
