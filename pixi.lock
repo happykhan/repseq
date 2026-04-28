@@ -1006,19 +1006,6 @@ packages:
   purls: []
   size: 71809
   timestamp: 1765193127016
-- pypi: ./
-  name: dustmeselecta
-  version: 0.1.0
-  sha256: 513731e4d33347e4fa928a1812bc072776bebc82e00ee376a9919463d0e5f192
-  requires_dist:
-  - click>=8.0
-  - pandas>=2.0
-  - scipy
-  - scikit-learn
-  - matplotlib
-  - seaborn
-  - biopython
-  requires_python: '>=3.10'
 - conda: https://conda.anaconda.org/bioconda/linux-64/entrez-direct-24.0-he881be0_0.tar.bz2
   sha256: 71a8f349659c9c18efa544663de2db1a20b5e3d32f8e4e88cd33110a0caf4eb3
   md5: 52a3fabee9201c2c6093c13b4eaf29b4
@@ -4651,6 +4638,19 @@ packages:
   purls: []
   size: 345073
   timestamp: 1765813471974
+- pypi: ./
+  name: repseq
+  version: 0.1.0
+  sha256: cdb0d74ea2188c6db7283bd74b7073341a968be197985f199be06d3b9332815e
+  requires_dist:
+  - click>=8.0
+  - pandas>=2.0
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - biopython
+  requires_python: '>=3.10'
 - conda: https://conda.anaconda.org/conda-forge/noarch/rich-15.0.0-pyhcf101f3_0.conda
   sha256: 3d6ba2c0fcdac3196ba2f0615b4104e532525ffa1335b50a2878be5ff488814a
   md5: 0242025a3c804966bf71aa04eee82f66

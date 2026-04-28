@@ -1,4 +1,4 @@
-"""All plotting functions for dustmeselecta."""
+"""All plotting functions for repseq."""
 
 import os
 

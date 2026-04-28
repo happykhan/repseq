@@ -1,16 +1,16 @@
-"""CLI entry point for dustmeselecta."""
+"""CLI entry point for repseq."""
 
 import click
 
-from dustmeselecta.select import run_select
-from dustmeselecta.evaluate import run_evaluate
-from dustmeselecta.sweep import run_sweep
+from repseq.select import run_select
+from repseq.evaluate import run_evaluate
+from repseq.sweep import run_sweep
 
 
 @click.group()
 @click.version_option()
 def cli():
-    """dustmeselecta -- select representative bacterial isolates for long-read sequencing."""
+    """repseq -- select representative bacterial isolates for long-read sequencing."""
 
 
 @cli.command()

@@ -1,0 +1,22 @@
+dustmeselecta Coverage Summary
+========================================
+
+Total samples in collection: 20
+Samples selected: 5
+
+AMR gene features:
+  Total unique: 81
+  Covered by selection: 58
+  Coverage: 71.6%
+
+Replicon types:
+  Total unique: 0
+  Covered by selection: 0
+  Coverage: 100.0%
+
+Selected samples:
+  Sample_a30abdfc
+  Sample_454f0c67
+  Sample_da0a7978
+  Sample_283376d3
+  Sample_f7e53a6b

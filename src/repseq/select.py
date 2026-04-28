@@ -5,9 +5,9 @@ import os
 import click
 import pandas as pd
 
-from dustmeselecta.phylo import run_mashtree, run_parnas, find_assemblies
-from dustmeselecta.amr_cover import run_kleborate, parse_kleborate, greedy_set_cover
-from dustmeselecta.plots import plot_elbow, plot_scatter, plot_tree_heatmap
+from repseq.phylo import run_mashtree, run_parnas, find_assemblies
+from repseq.amr_cover import run_kleborate, parse_kleborate, greedy_set_cover
+from repseq.plots import plot_elbow, plot_scatter, plot_tree_heatmap
 
 
 def run_select(
@@ -151,7 +151,7 @@ def _write_coverage_summary(
 
     summary_path = os.path.join(output_dir, "coverage_summary.txt")
     with open(summary_path, "w") as fh:
-        fh.write("dustmeselecta Coverage Summary\n")
+        fh.write("repseq Coverage Summary\n")
         fh.write("=" * 40 + "\n\n")
         fh.write(f"Total samples in collection: {len(binary_matrix)}\n")
         fh.write(f"Samples selected: {len(selected)}\n\n")

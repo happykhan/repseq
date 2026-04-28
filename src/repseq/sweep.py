@@ -5,9 +5,9 @@ import os
 import click
 import pandas as pd
 
-from dustmeselecta.select import run_select
-from dustmeselecta.evaluate import run_evaluate
-from dustmeselecta.plots import plot_pareto
+from repseq.select import run_select
+from repseq.evaluate import run_evaluate
+from repseq.plots import plot_pareto
 
 
 def run_sweep(
@@ -23,11 +23,11 @@ def run_sweep(
 
     # Pre-build tree and Kleborate if not provided, so they are reused across sweeps
     if tree_path is None:
-        from dustmeselecta.phylo import run_mashtree
+        from repseq.phylo import run_mashtree
         tree_path = run_mashtree(assemblies_dir, output_dir)
 
     if kleborate_path is None:
-        from dustmeselecta.amr_cover import run_kleborate
+        from repseq.amr_cover import run_kleborate
         kleborate_path = run_kleborate(assemblies_dir, output_dir)
 
     alphas = [round(a * 0.1, 1) for a in range(11)]

@@ -1,5 +1,5 @@
 [project]
-name = "dustmeselecta"
+name = "repseq"
 version = "0.1.0"
 description = "Select representative bacterial isolates for long-read sequencing using phylogenetic + AMR diversity"
 channels = ["conda-forge", "bioconda"]
@@ -10,7 +10,7 @@ mashtree = "*"
 minimap2 = "*"
 
 [pypi-dependencies]
-dustmeselecta = { path = ".", editable = true }
+repseq = { path = ".", editable = true }
 kleborate = ">=3.0"
 parnas = "*"
 click = ">=8.0"

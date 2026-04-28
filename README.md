@@ -1,8 +1,8 @@
-# dustmeselecta
+# repseq
 
 Select representative bacterial isolates from a large short-read collection for follow-up long-read sequencing.
 
-Given a folder of assemblies and a budget of N samples, `dms` splits slots between:
+Given a folder of assemblies and a budget of N samples, `repseq` splits slots between:
 - **Phylogenetic diversity** — PARNAS medoid selection on a Mash distance tree
 - **AMR/plasmid diversity** — greedy set cover on resistance gene and replicon profiles
 
@@ -13,8 +13,8 @@ The balance between the two is controlled by a single `--alpha` parameter.
 Requires [pixi](https://pixi.sh).
 
 ```bash
-git clone git@github.com:happykhan/dustmeselecta.git
-cd dustmeselecta
+git clone git@github.com:happykhan/repseq.git
+cd repseq
 pixi install
 ```
 
@@ -22,18 +22,18 @@ pixi install
 
 ```bash
 # Select 96 representatives from a folder of assemblies
-pixi run dms select --assemblies assemblies/ --n 96
+pixi run repseq select --assemblies assemblies/ --n 96
 
 # With a pre-built tree and Kleborate output
-pixi run dms select --assemblies assemblies/ --tree iqtree.nwk --kleborate kleborate.tsv --n 96
+pixi run repseq select --assemblies assemblies/ --tree iqtree.nwk --kleborate kleborate.tsv --n 96
 
 # Favour AMR/plasmid diversity (alpha=0.3 means 30% phylo, 70% AMR)
-pixi run dms select --assemblies assemblies/ --n 96 --alpha 0.3 --output-dir results/
+pixi run repseq select --assemblies assemblies/ --n 96 --alpha 0.3 --output-dir results/
 ```
 
 ## Subcommands
 
-### `dms select`
+### `repseq select`
 
 Main selection command.
 
@@ -44,6 +44,8 @@ Options:
   --kleborate FILE     Pre-run Kleborate TSV (skip auto-run)
   --n INT              Number of samples to select  [default: 10]
   --alpha FLOAT        Fraction of slots for phylo diversity, 0–1  [default: 0.5]
+                       alpha=1.0 → all slots filled by phylogeny only
+                       alpha=0.0 → all slots filled by AMR/plasmid diversity only
   --output-dir DIR     Output directory  [default: current dir]
 ```
 
@@ -66,12 +68,12 @@ Options:
 | `scatter_plot.png` | PCoA of Mash distances, selected samples starred |
 | `tree_heatmap.png` | Phylogenetic tree + AMR gene heatmap, selected highlighted in red |
 
-### `dms evaluate`
+### `repseq evaluate`
 
 Score a selection against a complete ground-truth dataset.
 
 ```bash
-pixi run dms evaluate \
+pixi run repseq evaluate \
   --selected selected.txt \
   --ground-truth complete_kleborate.tsv \
   --tree complete.treefile \
@@ -81,14 +83,14 @@ pixi run dms evaluate \
 Outputs `coverage_metrics.tsv` with:
 - % AMR gene combinations covered
 - % replicon types covered
-- % phylogenetic diversity (Faith PD) covered
+- % phylogenetic diversity covered — measured as Faith's Phylogenetic Diversity (PD): the total branch length of the tree spanned by the selected samples, expressed as a fraction of the total branch length of the full collection. A selection covering 90% Faith PD means your chosen samples collectively represent 90% of the evolutionary history present in the whole dataset.
 
-### `dms sweep`
+### `repseq sweep`
 
 Run `select` + `evaluate` across α = 0.0, 0.1, … 1.0 and generate a Pareto curve.
 
 ```bash
-pixi run dms sweep \
+pixi run repseq sweep \
   --assemblies assemblies/ \
   --n 96 \
   --ground-truth complete_kleborate.tsv \
@@ -101,14 +103,14 @@ Outputs `pareto.tsv` and `pareto_plot.png` showing the trade-off between phyloge
 
 ```bash
 cd test_data && bash download.sh
-pixi run dms select --assemblies test_data/ --n 5
+pixi run repseq select --assemblies test_data/ --n 5
 ```
 
 ## Choosing alpha
 
-Run with the default (α = 0.5) first and check the `coverage_summary.txt`. If your research question is primarily about AMR gene context and plasmid architecture, lower alpha (0.2–0.3). If phylogenetic breadth and outbreak reconstruction matter more, raise it (0.7–0.8). Use `dms sweep` with a ground-truth dataset to find the empirically optimal value.
+Run with the default (α = 0.5) first and check the `coverage_summary.txt`. If your research question is primarily about AMR gene context and plasmid architecture, lower alpha (0.2–0.3). If phylogenetic breadth and outbreak reconstruction matter more, raise it (0.7–0.8). Use `repseq sweep` with a ground-truth dataset to find the empirically optimal value.
 
-The elbow plot from `dms select` shows where adding more phylogenetic representatives hits diminishing returns — useful for choosing n.
+The elbow plot from `repseq select` shows where adding more phylogenetic representatives hits diminishing returns — useful for choosing n.
 
 ## Roadmap
 
@@ -119,4 +121,14 @@ The elbow plot from `dms select` shows where adding more phylogenetic representa
 
 ## Background
 
-See: Arredondo-Alonso et al., *GigaScience* 2021 (pangenome-based selection) and PARNAS, *Systematic Biology* 2023 (exact k-medoids on phylogenetic trees).
+**PARNAS** — phylogenetic medoid selection:
+Trost et al. "PARNAS: Objectively Selecting the Most Representative Taxa on a Phylogeny." *Systematic Biology* 72(5):1052–1063, 2023. https://doi.org/10.1093/sysbio/syad028
+
+**Kleborate** — AMR and virulence typing for Klebsiella:
+Lam et al. "A genomic surveillance framework and genotyping tool for Klebsiella pneumoniae and its related species complex." *Nature Communications* 12:4188, 2021. https://doi.org/10.1038/s41467-021-24448-3
+
+**PlasmidFinder** — plasmid replicon typing (planned):
+Carattoli et al. "In Silico Detection and Typing of Plasmids using PlasmidFinder." *Antimicrobial Agents and Chemotherapy* 58(7):3895–3903, 2014. https://doi.org/10.1128/AAC.02412-14
+
+**hAMRonization** — standardised AMR tool output parsing (planned):
+https://github.com/pha4ge/hAMRonization

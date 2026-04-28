@@ -6,7 +6,7 @@ import click
 import pandas as pd
 from Bio import Phylo
 
-from dustmeselecta.amr_cover import parse_kleborate
+from repseq.amr_cover import parse_kleborate
 
 
 def faith_pd(tree, selected_names: set[str]) -> float:

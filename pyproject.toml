@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dustmeselecta"
+name = "repseq"
 version = "0.1.0"
 description = "Select representative bacterial isolates for long-read sequencing using phylogenetic + AMR diversity"
 requires-python = ">=3.10"
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-dms = "dustmeselecta.cli:cli"
+repseq = "repseq.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
