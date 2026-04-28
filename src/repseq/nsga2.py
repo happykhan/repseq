@@ -237,8 +237,8 @@ def run_nsga2(
         rows.append({
             "solution_id": si,
             "mean_pairwise_dist": front_F[si, 0],
-            "pct_amr_covered": front_F[si, 1],
-            "pct_rep_covered": front_F[si, 2],
+            "pct_amr_covered": round(front_F[si, 1] * 100, 2),
+            "pct_rep_covered": round(front_F[si, 2] * 100, 2),
             "is_recommended": si == rec_idx,
             "selected_samples": ";".join(sorted(sample_names)),
         })
@@ -267,8 +267,8 @@ def run_nsga2(
     print_message(
         f"Recommended solution (closest to ideal): "
         f"phylo dist={rec_row['mean_pairwise_dist']:.4f}, "
-        f"AMR={rec_row['pct_amr_covered']:.1%}, "
-        f"replicons={rec_row['pct_rep_covered']:.1%}",
+        f"AMR={rec_row['pct_amr_covered']:.1f}%, "
+        f"replicons={rec_row['pct_rep_covered']:.1f}%",
         "success",
     )
     print_message(f"Selected {len(rec_samples)} samples: {rec_samples}", "info")
