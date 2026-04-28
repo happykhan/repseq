@@ -555,3 +555,66 @@ def plot_nsga3_parallel(pareto_df: pd.DataFrame, output_dir: str) -> str:
     plt.close(fig)
     print_message(f"Parallel coordinates plot saved to {out_path}", "success")
     return out_path
+
+
+def plot_diversity_curve(curve_df: pd.DataFrame, output_dir: str) -> str:
+    """Plot a 3-curve diversity saturation (elbow) plot.
+
+    Each curve is normalised to 0--100% of its own maximum so all three
+    criteria are visually comparable on the same y-axis.
+
+    Parameters
+    ----------
+    curve_df : pd.DataFrame
+        Must have columns: k, phylo_pct, amr_jaccard_div, rep_jaccard_div.
+    output_dir : str
+        Directory in which to save diversity_curve.png.
+
+    Returns
+    -------
+    str
+        Path to the saved PNG.
+    """
+    out_path = os.path.join(output_dir, "diversity_curve.png")
+
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+
+    curves = [
+        ("phylo_pct", "Phylogenetic (PARNAS)", "#2c7bb6", "o"),
+        ("amr_jaccard_div", "AMR profile (Jaccard)", "#d7191c", "s"),
+        ("rep_jaccard_div", "Replicon profile (Jaccard)", "#1a9641", "^"),
+    ]
+
+    for col, label, colour, marker in curves:
+        vals = curve_df[col].copy()
+        if vals.isna().all():
+            continue
+        col_max = vals.max()
+        if col_max > 0:
+            normed = vals / col_max * 100.0
+        else:
+            normed = vals * 0.0
+        ax.plot(
+            curve_df["k"],
+            normed,
+            marker=marker,
+            color=colour,
+            linewidth=2,
+            markersize=5,
+            label=label,
+        )
+
+    ax.axhline(y=90, color="grey", linestyle="--", linewidth=1, alpha=0.7, label="90% threshold")
+
+    ax.set_xlabel("k (number of representatives)")
+    ax.set_ylabel("% of maximum diversity")
+    ax.set_ylim(0, 105)
+    ax.set_title("Diversity saturation curve — how many representatives are needed?")
+    ax.legend(loc="lower right")
+    ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print_message(f"Diversity curve plot saved to {out_path}", "success")
+    return out_path

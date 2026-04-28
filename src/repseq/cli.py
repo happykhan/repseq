@@ -247,3 +247,67 @@ def nsga3(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv,
         n_gen=generations,
         seed=seed,
     )
+
+
+@cli.command(name="diversity-curve")
+@click.option(
+    "--assemblies",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Folder of .fasta/.fa/.fna assembly files.",
+)
+@click.option(
+    "--tree",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-built Newick tree. If absent, mashtree is run.",
+)
+@click.option(
+    "--kleborate",
+    "kleborate_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-run Kleborate TSV.",
+)
+@click.option(
+    "--plasmid-finder",
+    "plasmidfinder_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-run PlasmidFinder merged TSV.",
+)
+@click.option(
+    "--hamronization",
+    "hamronization_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="hAMRonization TSV. Takes priority over --kleborate.",
+)
+@click.option(
+    "--abricate-replicons",
+    "abricate_replicons_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-run ABRicate (plasmidfinder db) TSV for replicon features.",
+)
+@click.option("--max-k", default=30, type=int, help="Maximum number of representatives to evaluate.")
+@click.option(
+    "--output-dir",
+    default=".",
+    type=click.Path(file_okay=False),
+    help="Output directory (created if needed).",
+)
+def diversity_curve(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, abricate_replicons_path, max_k, output_dir):
+    """Plot diversity saturation curves to help choose the number of representatives."""
+    from repseq.diversity import run_diversity_curve
+
+    run_diversity_curve(
+        assemblies_dir=assemblies,
+        tree_path=tree,
+        kleborate_path=kleborate_tsv,
+        plasmidfinder_path=plasmidfinder_tsv,
+        hamronization_path=hamronization_tsv,
+        abricate_replicons_path=abricate_replicons_path,
+        max_k=max_k,
+        output_dir=output_dir,
+    )
