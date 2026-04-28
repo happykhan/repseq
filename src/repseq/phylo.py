@@ -42,16 +42,21 @@ def run_mashtree(assemblies_dir: str, output_dir: str) -> str:
     return tree_path
 
 
-def run_parnas(tree_path: str, n_phylo: int, output_dir: str) -> list[str]:
-    """Run PARNAS to select n_phylo representative samples. Returns list of sample IDs."""
+def run_parnas(tree_path: str, n_phylo: int, output_dir: str, n_total: int | None = None) -> list[str]:
+    """Run PARNAS to select n_phylo representative samples. Returns list of sample IDs.
+
+    n_total is passed to --diversity so the elbow curve covers the full requested budget,
+    not just the phylo slice. If omitted, the diversity CSV only goes up to n_phylo.
+    """
     if n_phylo <= 0:
         return []
 
+    diversity_n = n_total if (n_total and n_total > n_phylo) else n_phylo
     diversity_csv = os.path.join(output_dir, "diversity_scores.csv")
     cmd = [
         "parnas",
         "-t", tree_path,
-        "-n", str(n_phylo),
+        "-n", str(diversity_n),
         "--diversity", diversity_csv,
     ]
     print_message(f"Running PARNAS to select {n_phylo} phylogenetically diverse samples...", "info")
@@ -59,12 +64,8 @@ def run_parnas(tree_path: str, n_phylo: int, output_dir: str) -> list[str]:
     if result.returncode != 0:
         raise click.ClickException(f"PARNAS failed:\n{result.stderr}")
 
-    # PARNAS outputs selected taxa to stdout, one per line
-    selected = []
-    for line in result.stdout.strip().splitlines():
-        line = line.strip()
-        if line:
-            sample_id = Path(line).stem
-            selected.append(sample_id)
+    # PARNAS outputs selected taxa to stdout, one per line (first n_phylo are the selection)
+    all_lines = [Path(ln.strip()).stem for ln in result.stdout.strip().splitlines() if ln.strip()]
+    selected = all_lines[:n_phylo]
     print_message(f"PARNAS selected {len(selected)} samples: {selected}", "success")
     return selected

@@ -144,7 +144,7 @@ def run_select(
             f"Budget split: {n_phylo} phylogenetic + {n_amr} AMR/replicon (alpha={alpha})",
             "info",
         )
-        phylo_selected = run_parnas(tree_path, n_phylo, output_dir)
+        phylo_selected = run_parnas(tree_path, n_phylo, output_dir, n_total=n)
         amr_selected = greedy_set_cover(binary_matrix, phylo_selected, n_amr)
         all_selected = phylo_selected + amr_selected
         print_message(f"Final selection: {len(all_selected)} samples", "success")
