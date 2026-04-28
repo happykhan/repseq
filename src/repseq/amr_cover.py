@@ -349,6 +349,80 @@ def parse_plasmidfinder(pf_path: str, binary_matrix: pd.DataFrame) -> pd.DataFra
     return binary_matrix
 
 
+def build_feature_matrix(
+    assemblies_dir: str | None,
+    output_dir: str,
+    hamronization_path: str | None = None,
+    kleborate_path: str | None = None,
+    plasmidfinder_path: str | None = None,
+    abricate_replicons_path: str | None = None,
+    cooccurrence: bool = False,
+) -> tuple[pd.DataFrame, str | None]:
+    """Build binary AMR+replicon feature matrix. Returns (matrix, kleborate_path).
+
+    kleborate_path may differ from input if auto-run.
+    """
+    # Step 1: build AMR binary matrix from best available source
+    if hamronization_path:
+        print_message("Using hAMRonization input for AMR features", "info")
+        binary_matrix, _ = parse_hamronization(hamronization_path)
+    elif kleborate_path:
+        print_message("Using Kleborate input for AMR features", "info")
+        binary_matrix, _ = parse_kleborate(kleborate_path)
+    else:
+        if assemblies_dir is None:
+            raise click.ClickException(
+                "No AMR input (--kleborate, --hamronization) and no --assemblies to auto-run"
+            )
+        print_message("No AMR input provided -- running ABRicate (ncbi db) automatically", "info")
+        kleborate_path = run_kleborate(assemblies_dir, output_dir)
+        binary_matrix, _ = parse_kleborate(kleborate_path)
+
+    print_message(
+        f"AMR matrix: {binary_matrix.shape[0]} samples x {binary_matrix.shape[1]} features", "info"
+    )
+
+    # Step 2: pad matrix so every assembly is represented (even if it had no hits)
+    if assemblies_dir is not None:
+        from repseq.phylo import find_assemblies
+
+        try:
+            all_assembly_stems = {Path(p).stem for p in find_assemblies(assemblies_dir)}
+        except click.ClickException:
+            all_assembly_stems = set()
+        missing_stems = all_assembly_stems - set(binary_matrix.index)
+        if missing_stems:
+            print_message(
+                f"Padding {len(missing_stems)} assemblies with no AMR hits into matrix", "info"
+            )
+            zero_rows = pd.DataFrame(
+                0,
+                index=sorted(missing_stems),
+                columns=binary_matrix.columns if len(binary_matrix.columns) else pd.Index([]),
+            )
+            binary_matrix = pd.concat([binary_matrix, zero_rows])
+
+    # Step 3: add replicon features from best available source
+    if plasmidfinder_path:
+        print_message("Using pre-run PlasmidFinder input for replicon features", "info")
+        binary_matrix = parse_plasmidfinder(plasmidfinder_path, binary_matrix)
+    elif abricate_replicons_path:
+        print_message("Using pre-run ABRicate replicon output", "info")
+        binary_matrix = parse_abricate_replicons(abricate_replicons_path, binary_matrix)
+    elif assemblies_dir is not None:
+        print_message("Running ABRicate (plasmidfinder db) for replicon features", "info")
+        abricate_rep_path = run_abricate(assemblies_dir, output_dir, db="plasmidfinder")
+        binary_matrix = parse_abricate_replicons(abricate_rep_path, binary_matrix)
+    else:
+        print_message("No replicon source and no assemblies -- skipping replicon features", "warning")
+
+    # Step 4: optionally enrich with co-occurrence (REP+AMR) features
+    if cooccurrence:
+        binary_matrix = add_cooccurrence_features(binary_matrix)
+
+    return binary_matrix, kleborate_path
+
+
 def greedy_set_cover(
     binary_matrix: pd.DataFrame,
     exclude_samples: list[str],

@@ -476,3 +476,82 @@ def plot_pareto(pareto_tsv: str, output_dir: str) -> str:
     plt.close(fig)
     print_message(f"Pareto plot saved to {out_path}", "success")
     return out_path
+
+
+def plot_nsga2_front(pareto_df: pd.DataFrame, output_dir: str) -> str:
+    """3-panel pairwise scatter of the NSGA-III Pareto front."""
+    out_path = os.path.join(output_dir, "pareto_front.png")
+
+    pairs = [
+        ("mean_pairwise_dist", "pct_amr_covered", "Mean pairwise distance", "AMR coverage"),
+        ("mean_pairwise_dist", "pct_rep_covered", "Mean pairwise distance", "Replicon coverage"),
+        ("pct_amr_covered", "pct_rep_covered", "AMR coverage", "Replicon coverage"),
+    ]
+
+    rec_mask = pareto_df["is_recommended"].astype(bool)
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+    for ax, (xcol, ycol, xlabel, ylabel) in zip(axes, pairs, strict=True):
+        ax.scatter(
+            pareto_df[xcol][~rec_mask],
+            pareto_df[ycol][~rec_mask],
+            c="grey", s=30, alpha=0.6, edgecolors="none",
+        )
+        if rec_mask.any():
+            ax.scatter(
+                pareto_df[xcol][rec_mask],
+                pareto_df[ycol][rec_mask],
+                c="red", marker="*", s=200, zorder=10,
+            )
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle("NSGA-III Pareto Front", fontsize=13, fontweight="bold")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print_message(f"Pareto front plot saved to {out_path}", "success")
+    return out_path
+
+
+def plot_nsga2_parallel(pareto_df: pd.DataFrame, output_dir: str) -> str:
+    """Parallel coordinates plot of the NSGA-III Pareto front."""
+    out_path = os.path.join(output_dir, "pareto_parallel.png")
+
+    obj_cols = ["mean_pairwise_dist", "pct_amr_covered", "pct_rep_covered"]
+    labels = ["Mean pairwise dist", "AMR coverage", "Replicon coverage"]
+
+    vals = pareto_df[obj_cols].values.copy()
+    col_min = vals.min(axis=0)
+    col_max = vals.max(axis=0)
+    col_range = col_max - col_min
+    col_range[col_range == 0] = 1.0
+    normed = (vals - col_min) / col_range
+
+    rec_mask = pareto_df["is_recommended"].values.astype(bool)
+    x_positions = np.arange(len(obj_cols))
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    # Non-recommended solutions
+    for i in range(len(normed)):
+        if not rec_mask[i]:
+            ax.plot(x_positions, normed[i], color="lightgrey", lw=0.8, alpha=0.5)
+
+    # Recommended solution on top
+    for i in range(len(normed)):
+        if rec_mask[i]:
+            ax.plot(x_positions, normed[i], color="red", lw=2.5, zorder=10)
+
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("Normalised value")
+    ax.set_ylim(-0.05, 1.05)
+    ax.set_title("NSGA-III Pareto Front -- Parallel Coordinates", fontweight="bold")
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print_message(f"Parallel coordinates plot saved to {out_path}", "success")
+    return out_path

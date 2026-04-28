@@ -184,3 +184,80 @@ def sweep(assemblies, tree, kleborate_tsv, hamronization_tsv, n_select, ground_t
         ground_truth_path=ground_truth,
         output_dir=output_dir,
     )
+
+
+@cli.command()
+@click.option(
+    "--assemblies",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Folder of .fasta/.fa/.fna assembly files (used for auto-running tools if needed).",
+)
+@click.option(
+    "--tree",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-built Newick tree. If absent, mashtree is run.",
+)
+@click.option(
+    "--kleborate",
+    "kleborate_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-run Kleborate TSV.",
+)
+@click.option(
+    "--plasmid-finder",
+    "plasmidfinder_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-run PlasmidFinder merged TSV.",
+)
+@click.option(
+    "--hamronization",
+    "hamronization_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="hAMRonization TSV. Takes priority over --kleborate.",
+)
+@click.option(
+    "--abricate-replicons",
+    "abricate_replicons_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-run ABRicate (plasmidfinder db) TSV for replicon features.",
+)
+@click.option("--n", "n_select", default=10, type=int, help="Number of isolates to select.")
+@click.option("--pop-size", default=100, type=int, help="NSGA-III population size.")
+@click.option("--generations", default=300, type=int, help="Number of NSGA-III generations.")
+@click.option("--seed", default=42, type=int, help="Random seed for reproducibility.")
+@click.option(
+    "--cooccurrence",
+    is_flag=True,
+    default=False,
+    help="Add REP+AMR co-occurrence features.",
+)
+@click.option(
+    "--output-dir",
+    default=".",
+    type=click.Path(file_okay=False),
+    help="Output directory (created if needed).",
+)
+def nsga2(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, abricate_replicons_tsv, n_select, pop_size, generations, seed, cooccurrence, output_dir):
+    """Multi-objective selection using NSGA-III (phylo distance + AMR + replicon coverage)."""
+    from repseq.nsga2 import run_nsga2
+
+    run_nsga2(
+        assemblies_dir=assemblies,
+        tree_path=tree,
+        kleborate_path=kleborate_tsv,
+        plasmidfinder_path=plasmidfinder_tsv,
+        hamronization_path=hamronization_tsv,
+        abricate_replicons_path=abricate_replicons_tsv,
+        n=n_select,
+        output_dir=output_dir,
+        pop_size=pop_size,
+        n_gen=generations,
+        seed=seed,
+        cooccurrence=cooccurrence,
+    )

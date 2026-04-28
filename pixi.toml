@@ -22,6 +22,7 @@ scikit-learn = "*"
 matplotlib = "*"
 seaborn = "*"
 biopython = "*"
+pymoo = ">=0.6,<0.6.1.6"
 
 [feature.dev.dependencies]
 python = ">=3.10"

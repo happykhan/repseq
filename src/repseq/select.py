@@ -11,19 +11,13 @@ from Bio import Phylo
 from scipy.spatial.distance import pdist, squareform
 
 from repseq.amr_cover import (
-    add_cooccurrence_features,
+    build_feature_matrix,
     greedy_set_cover,
-    parse_abricate_replicons,
-    parse_hamronization,
-    parse_kleborate,
-    parse_plasmidfinder,
     read_st_map,
-    run_abricate,
-    run_kleborate,
 )
 from repseq.joint import compute_joint_dist, run_kmedoids, tree_to_dist_matrix
 from repseq.log import print_message
-from repseq.phylo import find_assemblies, run_mashtree, run_parnas
+from repseq.phylo import run_mashtree, run_parnas
 from repseq.plots import plot_elbow, plot_scatter, plot_tree_heatmap
 
 
@@ -54,50 +48,16 @@ def run_select(
     if tree_path is None:
         tree_path = run_mashtree(assemblies_dir, output_dir)
 
-    # Step 2: build AMR binary matrix from best available source
-    #         (needed for both split and joint methods)
-    if hamronization_path:
-        print_message("Using hAMRonization input for AMR features", "info")
-        binary_matrix, _ = parse_hamronization(hamronization_path)
-    elif kleborate_path:
-        print_message("Using Kleborate input for AMR features", "info")
-        binary_matrix, _ = parse_kleborate(kleborate_path)
-    else:
-        print_message("No AMR input provided — running ABRicate (ncbi db) automatically", "info")
-        kleborate_path = run_kleborate(assemblies_dir, output_dir)
-        binary_matrix, _ = parse_kleborate(kleborate_path)
-
-    print_message(
-        f"AMR matrix: {binary_matrix.shape[0]} samples x {binary_matrix.shape[1]} features", "info"
+    # Step 2: build AMR + replicon feature matrix
+    binary_matrix, kleborate_path = build_feature_matrix(
+        assemblies_dir=assemblies_dir,
+        output_dir=output_dir,
+        hamronization_path=hamronization_path,
+        kleborate_path=kleborate_path,
+        plasmidfinder_path=plasmidfinder_path,
+        abricate_replicons_path=abricate_replicons_path,
+        cooccurrence=cooccurrence,
     )
-
-    # Step 4a: pad matrix so every assembly is represented (even if it had no hits)
-    all_assembly_stems = {Path(p).stem for p in find_assemblies(assemblies_dir)}
-    missing_stems = all_assembly_stems - set(binary_matrix.index)
-    if missing_stems:
-        print_message(f"Padding {len(missing_stems)} assemblies with no AMR hits into matrix", "info")
-        zero_rows = pd.DataFrame(
-            0,
-            index=sorted(missing_stems),
-            columns=binary_matrix.columns if len(binary_matrix.columns) else pd.Index([]),
-        )
-        binary_matrix = pd.concat([binary_matrix, zero_rows])
-
-    # Step 5: add replicon features from best available source
-    if plasmidfinder_path:
-        print_message("Using pre-run PlasmidFinder input for replicon features", "info")
-        binary_matrix = parse_plasmidfinder(plasmidfinder_path, binary_matrix)
-    elif abricate_replicons_path:
-        print_message("Using pre-run ABRicate replicon output", "info")
-        binary_matrix = parse_abricate_replicons(abricate_replicons_path, binary_matrix)
-    else:
-        print_message("Running ABRicate (plasmidfinder db) for replicon features", "info")
-        abricate_rep_path = run_abricate(assemblies_dir, output_dir, db="plasmidfinder")
-        binary_matrix = parse_abricate_replicons(abricate_rep_path, binary_matrix)
-
-    # Step 5b: optionally enrich with co-occurrence (REP+AMR) features
-    if cooccurrence:
-        binary_matrix = add_cooccurrence_features(binary_matrix)
 
     features = list(binary_matrix.columns)
 
