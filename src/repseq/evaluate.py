@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 from Bio import Phylo
 
-from repseq.amr_cover import parse_kleborate
+from repseq.amr_cover import parse_kleborate, read_st_map
 from repseq.log import print_header, print_message
 
 _RANDOM_REPS = 100
@@ -147,6 +147,12 @@ def run_evaluate(
     # Minimax distance (what PARNAS actually optimises)
     minimax = _minimax_metrics(tree, selected, all_names)
 
+    # ST coverage (Kleborate only — empty dict if not applicable)
+    st_map = read_st_map(ground_truth_path)
+    all_sts = set(st_map.values())
+    sel_sts = {st_map[s] for s in selected if s in st_map}
+    pct_st = len(sel_sts) / len(all_sts) * 100 if all_sts else 100.0
+
     # Random baseline (100 draws of the same N)
     print_message(f"Computing random baseline ({_RANDOM_REPS} draws)...", "info")
     baseline = _random_baseline(tree, binary_matrix, all_names, len(selected), total_faith)
@@ -164,6 +170,9 @@ def run_evaluate(
         "covered_amr_features":     len(sel_amr),
         "total_replicon_types":     len(all_rep),
         "covered_replicon_types":   len(sel_rep),
+        "pct_st_covered":           round(pct_st, 2),
+        "total_sts":                len(all_sts),
+        "covered_sts":              len(sel_sts),
         **baseline,
     }
 
@@ -175,6 +184,8 @@ def run_evaluate(
     print_message(f"Faith PD:             {pct_faith:.1f}%  (random baseline: {baseline['random_mean_faith_pd_pct']:.1f}%)", "info")
     print_message(f"AMR gene coverage:    {pct_amr:.1f}%  (random baseline: {baseline['random_mean_amr_pct']:.1f}%)", "info")
     print_message(f"Replicon coverage:    {pct_rep:.1f}%", "info")
+    if all_sts:
+        print_message(f"ST coverage:          {pct_st:.1f}%  ({len(sel_sts)}/{len(all_sts)} STs)", "info")
     print_message(f"Minimax dist (max):   {minimax['max_minimax_dist']:.4f}", "info")
     print_message(f"Minimax dist (mean):  {minimax['mean_minimax_dist']:.4f}", "info")
 

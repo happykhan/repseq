@@ -17,6 +17,7 @@ from repseq.amr_cover import (
     parse_hamronization,
     parse_kleborate,
     parse_plasmidfinder,
+    read_st_map,
     run_abricate,
     run_kleborate,
 )
@@ -162,7 +163,8 @@ def run_select(
     _write_report(binary_matrix, phylo_selected, amr_selected, output_dir, slot_label=slot_label)
 
     # Write coverage_summary.txt
-    _write_coverage_summary(binary_matrix, all_selected, features, output_dir)
+    st_map = read_st_map(kleborate_path) if kleborate_path else {}
+    _write_coverage_summary(binary_matrix, all_selected, features, output_dir, st_map=st_map)
 
     # Generate plots
     diversity_csv = os.path.join(output_dir, "diversity_scores.csv")
@@ -233,6 +235,7 @@ def _write_coverage_summary(
     selected: list[str],
     features: list[str],
     output_dir: str,
+    st_map: dict[str, str] | None = None,
 ) -> None:
     """Write human-readable coverage summary."""
     amr_features = [f for f in features if f.startswith("AMR:")]
@@ -270,6 +273,16 @@ def _write_coverage_summary(
     pct_amr = (len(sel_amr) / len(all_amr) * 100) if all_amr else 100.0
     pct_rep = (len(sel_rep) / len(all_rep) * 100) if all_rep else 100.0
 
+    # ST coverage
+    if st_map:
+        all_sts = set(st_map.values())
+        sel_sts = {st_map[s] for s in selected if s in st_map}
+        pct_st = len(sel_sts) / len(all_sts) * 100 if all_sts else 100.0
+    else:
+        all_sts: set[str] = set()
+        sel_sts: set[str] = set()
+        pct_st = 100.0
+
     summary_path = os.path.join(output_dir, "coverage_summary.txt")
     with open(summary_path, "w") as fh:
         fh.write("repseq Coverage Summary\n")
@@ -284,6 +297,11 @@ def _write_coverage_summary(
         fh.write(f"  Total unique: {len(all_rep)}\n")
         fh.write(f"  Covered by selection: {len(sel_rep)}\n")
         fh.write(f"  Coverage: {pct_rep:.1f}%\n\n")
+        if all_sts:
+            fh.write("Sequence types (MLST):\n")
+            fh.write(f"  Total unique: {len(all_sts)}\n")
+            fh.write(f"  Covered by selection: {len(sel_sts)}\n")
+            fh.write(f"  Coverage: {pct_st:.1f}%\n\n")
         fh.write("Selected samples:\n")
         for sid in selected:
             fh.write(f"  {sid}\n")

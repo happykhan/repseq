@@ -35,6 +35,29 @@ LEGACY_GENE_COLS = [
 REPLICON_COLS = ["plasmid_replicons"]
 
 
+def read_st_map(kleborate_path: str) -> dict[str, str]:
+    """Return {sample_id: ST} from a Kleborate TSV.
+
+    Returns an empty dict if no ST column is found (non-kpsc species).
+    """
+    try:
+        df = pd.read_csv(kleborate_path, sep="\t")
+    except Exception:
+        return {}
+
+    id_col = next((c for c in ["strain", "sample", "assembly", "name"] if c in df.columns), None)
+    st_col = next((c for c in df.columns if "mlst__ST" in c or c == "ST"), None)
+    if id_col is None or st_col is None:
+        return {}
+
+    df[id_col] = df[id_col].apply(lambda x: Path(str(x)).stem)
+    return {
+        row[id_col]: str(row[st_col])
+        for _, row in df.iterrows()
+        if str(row[st_col]) not in ("-", "nan", "None", "")
+    }
+
+
 def run_kleborate(assemblies_dir: str, output_dir: str) -> str:
     """Run Kleborate on assemblies, return path to the merged output TSV."""
     kleb_outdir = os.path.join(output_dir, "kleborate_output")

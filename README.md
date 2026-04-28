@@ -114,6 +114,8 @@ Outputs `coverage_metrics.tsv` with:
 | `mean_minimax_dist` | Mean of the above across all unselected samples |
 | `pct_amr_covered` | % of AMR gene features in the collection covered by selection |
 | `pct_replicons_covered` | % of replicon types covered |
+| `pct_st_covered` | % of MLST sequence types covered (Kleborate input only) |
+| `total_sts` / `covered_sts` | Raw counts behind `pct_st_covered` |
 | `random_mean_faith_pd_pct` | Mean Faith PD % of 100 random draws of the same N |
 | `random_mean_amr_pct` | Mean AMR coverage % of 100 random draws of the same N |
 

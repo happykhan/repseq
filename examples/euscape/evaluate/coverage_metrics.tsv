@@ -1,2 +1,2 @@
-n_selected	pct_faith_pd	total_faith_pd	selected_faith_pd	max_minimax_dist	mean_minimax_dist	pct_amr_covered	pct_replicons_covered	total_amr_features	covered_amr_features	total_replicon_types	covered_replicon_types	random_mean_faith_pd_pct	random_mean_amr_pct
-20	57.81	0.20348	0.11764	0.01124	0.002885	89.66	100.0	87	78	0	0	32.44	60.62
+n_selected	pct_faith_pd	total_faith_pd	selected_faith_pd	max_minimax_dist	mean_minimax_dist	pct_amr_covered	pct_replicons_covered	total_amr_features	covered_amr_features	total_replicon_types	covered_replicon_types	pct_st_covered	total_sts	covered_sts	random_mean_faith_pd_pct	random_mean_amr_pct
+20	57.81	0.20348	0.11764	0.01124	0.002885	89.66	100.0	87	78	0	0	55.56	18	10	31.11	60.74

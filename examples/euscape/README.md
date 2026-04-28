@@ -129,12 +129,13 @@ pixi run repseq evaluate \
 
 | Metric | Value | Random baseline |
 |--------|-------|----------------|
-| Faith PD (%) | **57.8%** | 32.4% |
-| AMR gene coverage (%) | **89.7%** | 60.6% |
+| Faith PD (%) | **57.8%** | 31.1% |
+| AMR gene coverage (%) | **89.7%** | 60.7% |
+| ST coverage (%) | **55.6%** (10/18 STs) | — |
 | Minimax distance (max) | 0.0112 | — |
 | Minimax distance (mean) | 0.0029 | — |
 
-repseq's selection covers **57.8% of Faith's Phylogenetic Diversity** compared to a random baseline of **32.4%** — a 1.8× improvement. AMR coverage is **89.7%** vs a random baseline of **60.6%** — a 1.5× improvement.
+repseq's selection covers **57.8% of Faith's Phylogenetic Diversity** compared to a random baseline of **31.1%** — a 1.9× improvement. AMR coverage is **89.7%** vs a random baseline of **60.7%** — a 1.5× improvement. The selection captures **10 of the 18 sequence types** (55.6%) present in the collection, including all major lineages (ST512, ST258, ST11, ST147).
 
 **Faith's Phylogenetic Diversity:** the total branch length of the minimum spanning subtree of the selected samples as a fraction of the total tree branch length. A value of 57.8% means the 20 selected samples span 57.8% of the evolutionary history of the 79-isolate collection.
 
