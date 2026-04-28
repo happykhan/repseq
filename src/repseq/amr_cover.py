@@ -356,7 +356,6 @@ def build_feature_matrix(
     kleborate_path: str | None = None,
     plasmidfinder_path: str | None = None,
     abricate_replicons_path: str | None = None,
-    cooccurrence: bool = False,
 ) -> tuple[pd.DataFrame, str | None]:
     """Build binary AMR+replicon feature matrix. Returns (matrix, kleborate_path).
 
@@ -416,10 +415,6 @@ def build_feature_matrix(
     else:
         print_message("No replicon source and no assemblies -- skipping replicon features", "warning")
 
-    # Step 4: optionally enrich with co-occurrence (REP+AMR) features
-    if cooccurrence:
-        binary_matrix = add_cooccurrence_features(binary_matrix)
-
     return binary_matrix, kleborate_path
 
 
@@ -474,39 +469,6 @@ def greedy_set_cover(
 
     print_message(f"Greedy set cover selected {len(selected)} samples: {selected}", "success")
     return selected
-
-
-def add_cooccurrence_features(binary_matrix: pd.DataFrame) -> pd.DataFrame:
-    """Add REP+AMR co-occurrence columns to binary_matrix.
-
-    A co-occurrence feature CO:IncFII+TEM-1 is 1 only when both IncFII and
-    TEM-1 are present in the same sample, capturing plasmid-gene linkage that
-    binary presence/absence alone misses.  Only features present in ≥1 sample
-    are retained so the matrix does not explode in size.
-    """
-    amr_cols = [c for c in binary_matrix.columns if c.startswith("AMR:")]
-    rep_cols = [c for c in binary_matrix.columns if c.startswith("REP:")]
-
-    if not amr_cols or not rep_cols:
-        print_message("No REP or AMR columns — skipping co-occurrence features.", "warning")
-        return binary_matrix
-
-    co_data: dict[str, pd.Series] = {}
-    for rep in rep_cols:
-        for amr in amr_cols:
-            col = f"CO:{rep[4:]}+{amr[4:]}"
-            vals = (binary_matrix[rep] & binary_matrix[amr]).astype(int)
-            if vals.sum() > 0:
-                co_data[col] = vals
-
-    if co_data:
-        co_df = pd.DataFrame(co_data, index=binary_matrix.index)
-        binary_matrix = pd.concat([binary_matrix, co_df], axis=1)
-        print_message(f"Added {len(co_df.columns)} co-occurrence (REP+AMR) features", "info")
-    else:
-        print_message("No co-occurring REP+AMR pairs found.", "info")
-
-    return binary_matrix
 
 
 # ---------------------------------------------------------------------------

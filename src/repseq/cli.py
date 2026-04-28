@@ -57,12 +57,6 @@ def cli():
     help="Budget split: alpha=1.0 -> pure phylo, alpha=0.0 -> pure AMR/replicon.",
 )
 @click.option(
-    "--cooccurrence",
-    is_flag=True,
-    default=False,
-    help="Add REP+AMR co-occurrence features to capture plasmid-gene linkage.",
-)
-@click.option(
     "--method",
     type=click.Choice(["split", "joint"]),
     default="split",
@@ -81,7 +75,7 @@ def cli():
     type=click.Path(file_okay=False),
     help="Output directory (created if needed).",
 )
-def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, n_select, alpha, cooccurrence, method, joint_weight, output_dir):
+def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, n_select, alpha, method, joint_weight, output_dir):
     """Select N representative isolates from an assembly collection."""
     run_select(
         assemblies_dir=assemblies,
@@ -91,7 +85,6 @@ def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv
         hamronization_path=hamronization_tsv,
         n=n_select,
         alpha=alpha,
-        cooccurrence=cooccurrence,
         output_dir=output_dir,
         method=method,
         joint_weight=joint_weight,
@@ -232,22 +225,16 @@ def sweep(assemblies, tree, kleborate_tsv, hamronization_tsv, n_select, ground_t
 @click.option("--generations", default=300, type=int, help="Number of NSGA-III generations.")
 @click.option("--seed", default=42, type=int, help="Random seed for reproducibility.")
 @click.option(
-    "--cooccurrence",
-    is_flag=True,
-    default=False,
-    help="Add REP+AMR co-occurrence features.",
-)
-@click.option(
     "--output-dir",
     default=".",
     type=click.Path(file_okay=False),
     help="Output directory (created if needed).",
 )
-def nsga2(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, abricate_replicons_tsv, n_select, pop_size, generations, seed, cooccurrence, output_dir):
+def nsga3(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, abricate_replicons_tsv, n_select, pop_size, generations, seed, output_dir):
     """Multi-objective selection using NSGA-III (phylo distance + AMR + replicon coverage)."""
-    from repseq.nsga2 import run_nsga2
+    from repseq.nsga3 import run_nsga3
 
-    run_nsga2(
+    run_nsga3(
         assemblies_dir=assemblies,
         tree_path=tree,
         kleborate_path=kleborate_tsv,
@@ -259,5 +246,4 @@ def nsga2(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv,
         pop_size=pop_size,
         n_gen=generations,
         seed=seed,
-        cooccurrence=cooccurrence,
     )

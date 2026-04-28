@@ -478,13 +478,13 @@ def plot_pareto(pareto_tsv: str, output_dir: str) -> str:
     return out_path
 
 
-def plot_nsga2_front(pareto_df: pd.DataFrame, output_dir: str) -> str:
+def plot_nsga3_front(pareto_df: pd.DataFrame, output_dir: str) -> str:
     """3-panel pairwise scatter of the NSGA-III Pareto front."""
     out_path = os.path.join(output_dir, "pareto_front.png")
 
     pairs = [
-        ("mean_pairwise_dist", "pct_amr_covered", "Mean pairwise distance", "AMR coverage"),
-        ("mean_pairwise_dist", "pct_rep_covered", "Mean pairwise distance", "Replicon coverage"),
+        ("minimax_dist", "pct_amr_covered", "Minimax distance", "AMR coverage"),
+        ("minimax_dist", "pct_rep_covered", "Minimax distance", "Replicon coverage"),
         ("pct_amr_covered", "pct_rep_covered", "AMR coverage", "Replicon coverage"),
     ]
 
@@ -515,12 +515,12 @@ def plot_nsga2_front(pareto_df: pd.DataFrame, output_dir: str) -> str:
     return out_path
 
 
-def plot_nsga2_parallel(pareto_df: pd.DataFrame, output_dir: str) -> str:
+def plot_nsga3_parallel(pareto_df: pd.DataFrame, output_dir: str) -> str:
     """Parallel coordinates plot of the NSGA-III Pareto front."""
     out_path = os.path.join(output_dir, "pareto_parallel.png")
 
-    obj_cols = ["mean_pairwise_dist", "pct_amr_covered", "pct_rep_covered"]
-    labels = ["Mean pairwise dist", "AMR coverage", "Replicon coverage"]
+    obj_cols = ["minimax_dist", "pct_amr_covered", "pct_rep_covered"]
+    labels = ["Minimax dist", "AMR coverage", "Replicon coverage"]
 
     vals = pareto_df[obj_cols].values.copy()
     col_min = vals.min(axis=0)

@@ -30,7 +30,6 @@ def run_select(
     n: int,
     alpha: float,
     output_dir: str,
-    cooccurrence: bool = False,
     abricate_replicons_path: str | None = None,
     method: str = "split",
     joint_weight: float = 0.5,
@@ -56,7 +55,6 @@ def run_select(
         kleborate_path=kleborate_path,
         plasmidfinder_path=plasmidfinder_path,
         abricate_replicons_path=abricate_replicons_path,
-        cooccurrence=cooccurrence,
     )
 
     features = list(binary_matrix.columns)
