@@ -1,0 +1,37 @@
+repseq Coverage Summary
+========================================
+
+Total samples in collection: 79
+Samples selected: 20
+
+AMR gene features:
+  Total unique: 87
+  Covered by selection: 78
+  Coverage: 89.7%
+
+Replicon types:
+  Total unique: 48
+  Covered by selection: 44
+  Coverage: 91.7%
+
+Selected samples:
+  EuSCAPE_TR009
+  EuSCAPE_HU009
+  EuSCAPE_TR057
+  EuSCAPE_GR075
+  EuSCAPE_DE073
+  EuSCAPE_LV006
+  EuSCAPE_RO094
+  EuSCAPE_LU008
+  EuSCAPE_ES046
+  EuSCAPE_IT278
+  EuSCAPE_ES094
+  EuSCAPE_CZ007
+  EuSCAPE_BE092
+  EuSCAPE_ES085
+  EuSCAPE_FR056
+  EuSCAPE_IL046
+  EuSCAPE_TR083
+  EuSCAPE_IT266
+  EuSCAPE_IE008
+  EuSCAPE_IT062

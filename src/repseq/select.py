@@ -32,11 +32,12 @@ def run_select(
     alpha: float,
     output_dir: str,
     cooccurrence: bool = False,
+    abricate_replicons_path: str | None = None,
 ) -> list[str]:
     """Run the full selection pipeline.
 
     AMR feature priority: hAMRonization > Kleborate > ABRicate (auto-run).
-    Replicon feature priority: PlasmidFinder > ABRicate plasmidfinder db (auto-run).
+    Replicon priority: --plasmid-finder > pre-run ABRicate > auto-run ABRicate.
 
     Returns list of selected sample IDs.
     """
@@ -86,6 +87,9 @@ def run_select(
     if plasmidfinder_path:
         print_message("Using pre-run PlasmidFinder input for replicon features", "info")
         binary_matrix = parse_plasmidfinder(plasmidfinder_path, binary_matrix)
+    elif abricate_replicons_path:
+        print_message("Using pre-run ABRicate replicon output", "info")
+        binary_matrix = parse_abricate_replicons(abricate_replicons_path, binary_matrix)
     else:
         print_message("Running ABRicate (plasmidfinder db) for replicon features", "info")
         abricate_rep_path = run_abricate(assemblies_dir, output_dir, db="plasmidfinder")

@@ -1,0 +1,16 @@
+Pareto curve: alpha trade-off guide
+=====================================
+
+The Pareto sweep does NOT tell you which alpha to use — that is a
+scientific decision based on your study goals.
+
+How to choose alpha:
+  - alpha = 1.0  → pure phylogenetic diversity (ignore AMR/plasmid profile)
+  - alpha = 0.0  → pure AMR/replicon diversity (ignore phylogeny)
+  - alpha = 0.5  → equal weighting (default; good starting point)
+
+Look for the elbow in pareto_plot.png: the point where adding more
+phylo budget stops improving Faith PD meaningfully, or vice versa.
+Use the random_mean_faith_pd_pct and random_mean_amr_pct columns in
+pareto.tsv to check that your chosen alpha beats random selection on
+both axes.

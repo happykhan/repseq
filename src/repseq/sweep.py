@@ -33,8 +33,8 @@ def run_sweep(
     if hamronization_path is None and kleborate_path is None:
         kleborate_path = run_kleborate(assemblies_dir, output_dir)
 
-    # Pre-run replicon typing once (ABRicate plasmidfinder db)
-    plasmidfinder_path = run_abricate(assemblies_dir, output_dir, db="plasmidfinder")
+    # Pre-run replicon typing once (ABRicate plasmidfinder db) — reused across all alphas
+    abricate_replicons_path = run_abricate(assemblies_dir, output_dir, db="plasmidfinder")
 
     alphas = [round(a * 0.1, 1) for a in range(11)]
     results = []
@@ -49,8 +49,9 @@ def run_sweep(
             assemblies_dir=assemblies_dir,
             tree_path=tree_path,
             kleborate_path=kleborate_path,
-            plasmidfinder_path=plasmidfinder_path,
+            plasmidfinder_path=None,
             hamronization_path=hamronization_path,
+            abricate_replicons_path=abricate_replicons_path,
             n=n,
             alpha=alpha,
             output_dir=sweep_dir,
