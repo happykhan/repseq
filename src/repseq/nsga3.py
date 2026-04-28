@@ -15,6 +15,7 @@ from pymoo.core.problem import ElementwiseProblem
 from pymoo.core.sampling import Sampling
 from pymoo.optimize import minimize
 from pymoo.util.ref_dirs import get_reference_directions
+from scipy.spatial.distance import pdist, squareform
 
 from repseq.amr_cover import build_feature_matrix
 from repseq.joint import tree_to_dist_matrix
@@ -24,10 +25,10 @@ from repseq.plots import plot_nsga3_front, plot_nsga3_parallel
 
 
 class _RepseqProblem(ElementwiseProblem):
-    def __init__(self, dist_matrix: np.ndarray, amr_matrix: np.ndarray, rep_matrix: np.ndarray, k: int):
+    def __init__(self, dist_matrix: np.ndarray, amr_jaccard_dm: np.ndarray, rep_jaccard_dm: np.ndarray, k: int):
         self.D = dist_matrix
-        self.A = amr_matrix
-        self.R = rep_matrix
+        self.AMR_J = amr_jaccard_dm
+        self.REP_J = rep_jaccard_dm
         self.k = k
         self.n_total = dist_matrix.shape[0]
         super().__init__(
@@ -40,17 +41,24 @@ class _RepseqProblem(ElementwiseProblem):
 
     def _evaluate(self, x, out, *args, **kwargs):
         idx = list(x)
-        # f1: minimax distance (minimise directly)
+
+        # f1: minimax distance (minimise directly -- lower = better coverage)
         unselected = list(set(range(self.n_total)) - set(idx))
         if unselected:
             min_dists = self.D[np.ix_(unselected, idx)].min(axis=1)
             f1 = float(min_dists.max())
         else:
             f1 = 0.0
-        # f2: AMR coverage (negate for minimisation)
-        f2 = -float((self.A[idx, :].sum(axis=0) > 0).mean()) if self.A.shape[1] > 0 else -1.0
-        # f3: replicon coverage (negate for minimisation)
-        f3 = -float((self.R[idx, :].sum(axis=0) > 0).mean()) if self.R.shape[1] > 0 else -1.0
+
+        # f2: AMR profile diversity -- mean pairwise Jaccard (negate to minimise)
+        n_pairs = self.k * (self.k - 1)
+        sub_amr = self.AMR_J[np.ix_(idx, idx)]
+        f2 = -(sub_amr.sum() / n_pairs) if n_pairs > 0 else 0.0
+
+        # f3: replicon profile diversity -- mean pairwise Jaccard (negate to minimise)
+        sub_rep = self.REP_J[np.ix_(idx, idx)]
+        f3 = -(sub_rep.sum() / n_pairs) if n_pairs > 0 else 0.0
+
         out["F"] = [f1, f2, f3]
 
 
@@ -106,18 +114,18 @@ def select_display_solutions(pareto_df: pd.DataFrame, rec_idx: int) -> list[int]
 
     Returns solution indices for:
     1. Recommended (closest to ideal)
-    2. Best AMR coverage
-    3. Best replicon coverage
+    2. Best AMR diversity
+    3. Best replicon diversity
     4. Best phylo (lowest minimax_dist)
     5. Gap filler (max-min distance to the other 4 in normalised space)
     """
     chosen: list[int] = [rec_idx]
 
-    best_amr = int(pareto_df["pct_amr_covered"].idxmax())
+    best_amr = int(pareto_df["amr_profile_div"].idxmax())
     if best_amr not in chosen:
         chosen.append(best_amr)
 
-    best_rep = int(pareto_df["pct_rep_covered"].idxmax())
+    best_rep = int(pareto_df["rep_profile_div"].idxmax())
     if best_rep not in chosen:
         chosen.append(best_rep)
 
@@ -126,7 +134,7 @@ def select_display_solutions(pareto_df: pd.DataFrame, rec_idx: int) -> list[int]
         chosen.append(best_phylo)
 
     if len(chosen) < 5:
-        obj = pareto_df[["minimax_dist", "pct_amr_covered", "pct_rep_covered"]].values.copy()
+        obj = pareto_df[["minimax_dist", "amr_profile_div", "rep_profile_div"]].values.copy()
         for col_idx in range(obj.shape[1]):
             col_min, col_max = obj[:, col_idx].min(), obj[:, col_idx].max()
             rng = col_max - col_min
@@ -178,7 +186,8 @@ def run_nsga3(
     """Run NSGA-III multi-objective selection.
 
     Optimises three objectives simultaneously: minimax phylogenetic
-    distance, AMR gene coverage, and replicon type coverage.
+    distance, AMR profile diversity (mean pairwise Jaccard), and
+    replicon profile diversity (mean pairwise Jaccard).
 
     Returns list of sample IDs from the recommended Pareto-optimal solution.
     """
@@ -225,8 +234,15 @@ def run_nsga3(
 
     amr_cols = [c for c in binary_matrix.columns if c.startswith("AMR:")]
     rep_cols = [c for c in binary_matrix.columns if c.startswith("REP:")]
-    amr_matrix = binary_matrix.loc[names, amr_cols].values if amr_cols else np.empty((len(names), 0))
-    rep_matrix = binary_matrix.loc[names, rep_cols].values if rep_cols else np.empty((len(names), 0))
+
+    amr_arr = binary_matrix.loc[names, amr_cols].values.astype(float) if amr_cols else np.zeros((len(names), 1))
+    rep_arr = binary_matrix.loc[names, rep_cols].values.astype(float) if rep_cols else np.zeros((len(names), 1))
+
+    amr_jac = squareform(pdist(amr_arr, metric="jaccard"))
+    amr_jac = np.nan_to_num(amr_jac, nan=0.0)
+
+    rep_jac = squareform(pdist(rep_arr, metric="jaccard"))
+    rep_jac = np.nan_to_num(rep_jac, nan=0.0)
 
     print_message(
         f"Problem: select {n} from {len(names)} samples | "
@@ -234,7 +250,7 @@ def run_nsga3(
         "info",
     )
 
-    problem = _RepseqProblem(tree_dm, amr_matrix, rep_matrix, n)
+    problem = _RepseqProblem(tree_dm, amr_jac, rep_jac, n)
     ref_dirs = get_reference_directions("das-dennis", 3, n_partitions=12)
 
     algorithm = NSGA3(
@@ -269,30 +285,28 @@ def run_nsga3(
     raw_F = opt.get("F")
 
     # f1 (minimax) is already a minimisation target (un-negated)
-    # f2, f3 (AMR, replicon coverage) were negated -- un-negate them
+    # f2, f3 (AMR, replicon diversity) were negated -- un-negate them
     front_minimax = raw_F[:, 0]
-    front_amr = -raw_F[:, 1]
-    front_rep = -raw_F[:, 2]
+    front_amr_div = -raw_F[:, 1]
+    front_rep_div = -raw_F[:, 2]
 
     print_message(f"Pareto front size: {len(raw_F)} solutions", "success")
 
     # Normalise objectives for closest-to-ideal recommendation
-    front_obj = np.column_stack([front_minimax, front_amr * 100, front_rep * 100])
-    obj = front_obj.copy()
-
-    # minimax: lower is better -- invert after normalising
-    minimax_vals = obj[:, 0]
-    mini_min, mini_max = minimax_vals.min(), minimax_vals.max()
-    if mini_max > mini_min:
-        obj[:, 0] = 1.0 - (minimax_vals - mini_min) / (mini_max - mini_min)
-    else:
-        obj[:, 0] = 1.0
-    # AMR and replicon are 0-100; normalise to 0-1
-    obj[:, 1] = (obj[:, 1] - obj[:, 1].min()) / max(obj[:, 1].max() - obj[:, 1].min(), 1e-9)
-    obj[:, 2] = (obj[:, 2] - obj[:, 2].min()) / max(obj[:, 2].max() - obj[:, 2].min(), 1e-9)
-
+    obj = np.column_stack([front_minimax, front_amr_div, front_rep_div])
+    obj_norm = obj.copy()
+    for col_i in range(3):
+        col = obj[:, col_i]
+        lo, hi = col.min(), col.max()
+        if hi > lo:
+            obj_norm[:, col_i] = (col - lo) / (hi - lo)
+        else:
+            obj_norm[:, col_i] = 1.0
+    # minimax: lower is better -- invert
+    obj_norm[:, 0] = 1.0 - obj_norm[:, 0]
+    # AMR and replicon: higher is better -- keep as-is
     ideal = np.ones(3)
-    dists_to_ideal = np.linalg.norm(obj - ideal, axis=1)
+    dists_to_ideal = np.linalg.norm(obj_norm - ideal, axis=1)
     rec_idx = int(np.argmin(dists_to_ideal))
 
     # Build pareto_front.tsv
@@ -303,8 +317,8 @@ def run_nsga3(
         rows.append({
             "solution_id": si,
             "minimax_dist": float(front_minimax[si]),
-            "pct_amr_covered": round(float(front_amr[si]) * 100, 2),
-            "pct_rep_covered": round(float(front_rep[si]) * 100, 2),
+            "amr_profile_div": round(float(front_amr_div[si]), 4),
+            "rep_profile_div": round(float(front_rep_div[si]), 4),
             "is_recommended": si == rec_idx,
             "selected_samples": ";".join(sorted(sample_names)),
         })
@@ -330,8 +344,8 @@ def run_nsga3(
     print_message(
         f"Recommended solution (closest to ideal): "
         f"minimax dist={rec_row['minimax_dist']:.5f}, "
-        f"AMR={rec_row['pct_amr_covered']:.1f}%, "
-        f"replicons={rec_row['pct_rep_covered']:.1f}%",
+        f"AMR diversity={rec_row['amr_profile_div']:.4f}, "
+        f"replicon diversity={rec_row['rep_profile_div']:.4f}",
         "success",
     )
     print_message(f"Selected {len(rec_samples)} samples: {rec_samples}", "info")

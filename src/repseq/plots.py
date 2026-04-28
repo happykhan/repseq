@@ -483,9 +483,9 @@ def plot_nsga3_front(pareto_df: pd.DataFrame, output_dir: str) -> str:
     out_path = os.path.join(output_dir, "pareto_front.png")
 
     pairs = [
-        ("minimax_dist", "pct_amr_covered", "Minimax distance", "AMR coverage"),
-        ("minimax_dist", "pct_rep_covered", "Minimax distance", "Replicon coverage"),
-        ("pct_amr_covered", "pct_rep_covered", "AMR coverage", "Replicon coverage"),
+        ("minimax_dist", "amr_profile_div", "Minimax distance", "AMR profile diversity (Jaccard)"),
+        ("minimax_dist", "rep_profile_div", "Minimax distance", "Replicon profile diversity (Jaccard)"),
+        ("amr_profile_div", "rep_profile_div", "AMR profile diversity (Jaccard)", "Replicon profile diversity (Jaccard)"),
     ]
 
     rec_mask = pareto_df["is_recommended"].astype(bool)
@@ -519,8 +519,8 @@ def plot_nsga3_parallel(pareto_df: pd.DataFrame, output_dir: str) -> str:
     """Parallel coordinates plot of the NSGA-III Pareto front."""
     out_path = os.path.join(output_dir, "pareto_parallel.png")
 
-    obj_cols = ["minimax_dist", "pct_amr_covered", "pct_rep_covered"]
-    labels = ["Minimax dist", "AMR coverage", "Replicon coverage"]
+    obj_cols = ["minimax_dist", "amr_profile_div", "rep_profile_div"]
+    labels = ["Minimax dist", "AMR diversity", "Replicon diversity"]
 
     vals = pareto_df[obj_cols].values.copy()
     col_min = vals.min(axis=0)
