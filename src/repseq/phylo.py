@@ -1,11 +1,15 @@
 """Wrappers for mashtree and PARNAS."""
 
+from __future__ import annotations
+
+import glob
 import os
 import subprocess
-import glob
 from pathlib import Path
 
 import click
+
+from repseq.log import print_message
 
 
 def find_assemblies(assemblies_dir: str) -> list[str]:
@@ -27,14 +31,14 @@ def run_mashtree(assemblies_dir: str, output_dir: str) -> str:
     tree_path = os.path.join(output_dir, "tree.nwk")
     assembly_files = find_assemblies(assemblies_dir)
     cmd = ["mashtree"] + assembly_files
-    click.echo(f"Running mashtree on {len(assembly_files)} assemblies...")
+    print_message(f"Running mashtree on {len(assembly_files)} assemblies...", "info")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise click.ClickException(f"mashtree failed:\n{result.stderr}")
     # mashtree writes the tree to stdout
     with open(tree_path, "w") as fh:
         fh.write(result.stdout)
-    click.echo(f"Tree written to {tree_path}")
+    print_message(f"Tree written to {tree_path}", "success")
     return tree_path
 
 
@@ -50,7 +54,7 @@ def run_parnas(tree_path: str, n_phylo: int, output_dir: str) -> list[str]:
         "-n", str(n_phylo),
         "--diversity", diversity_csv,
     ]
-    click.echo(f"Running PARNAS to select {n_phylo} phylogenetically diverse samples...")
+    print_message(f"Running PARNAS to select {n_phylo} phylogenetically diverse samples...", "info")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise click.ClickException(f"PARNAS failed:\n{result.stderr}")
@@ -60,8 +64,7 @@ def run_parnas(tree_path: str, n_phylo: int, output_dir: str) -> list[str]:
     for line in result.stdout.strip().splitlines():
         line = line.strip()
         if line:
-            # Strip file extension from sample ID if present
             sample_id = Path(line).stem
             selected.append(sample_id)
-    click.echo(f"PARNAS selected {len(selected)} samples: {selected}")
+    print_message(f"PARNAS selected {len(selected)} samples: {selected}", "success")
     return selected

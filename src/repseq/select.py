@@ -1,12 +1,24 @@
 """Main selection logic: budget-split between PARNAS phylo and greedy AMR set cover."""
 
-import os
+from __future__ import annotations
 
-import click
+import os
+from pathlib import Path
+
 import pandas as pd
 
-from repseq.phylo import run_mashtree, run_parnas, find_assemblies
-from repseq.amr_cover import run_kleborate, parse_kleborate, greedy_set_cover, run_plasmidfinder, parse_plasmidfinder
+from repseq.amr_cover import (
+    add_cooccurrence_features,
+    greedy_set_cover,
+    parse_abricate_replicons,
+    parse_hamronization,
+    parse_kleborate,
+    parse_plasmidfinder,
+    run_abricate,
+    run_kleborate,
+)
+from repseq.log import print_message
+from repseq.phylo import find_assemblies, run_mashtree, run_parnas
 from repseq.plots import plot_elbow, plot_scatter, plot_tree_heatmap
 
 
@@ -15,11 +27,16 @@ def run_select(
     tree_path: str | None,
     kleborate_path: str | None,
     plasmidfinder_path: str | None,
+    hamronization_path: str | None,
     n: int,
     alpha: float,
     output_dir: str,
+    cooccurrence: bool = False,
 ) -> list[str]:
     """Run the full selection pipeline.
+
+    AMR feature priority: hAMRonization > Kleborate > ABRicate (auto-run).
+    Replicon feature priority: PlasmidFinder > ABRicate plasmidfinder db (auto-run).
 
     Returns list of selected sample IDs.
     """
@@ -29,26 +46,55 @@ def run_select(
     if tree_path is None:
         tree_path = run_mashtree(assemblies_dir, output_dir)
 
-    # Step 2: run Kleborate if needed
-    if kleborate_path is None:
-        kleborate_path = run_kleborate(assemblies_dir, output_dir)
-
-    # Step 3: budget split
+    # Step 2: budget split
     n_phylo = round(alpha * n)
     n_amr = n - n_phylo
-    click.echo(f"\nBudget split: {n_phylo} phylogenetic + {n_amr} AMR/replicon (alpha={alpha})")
+    print_message(f"Budget split: {n_phylo} phylogenetic + {n_amr} AMR/replicon (alpha={alpha})", "info")
 
-    # Step 4: PARNAS phylogenetic selection
+    # Step 3: PARNAS phylogenetic selection
     phylo_selected = run_parnas(tree_path, n_phylo, output_dir)
 
-    # Step 5: parse Kleborate
-    binary_matrix, features = parse_kleborate(kleborate_path)
-    click.echo(f"Kleborate matrix: {binary_matrix.shape[0]} samples x {binary_matrix.shape[1]} features")
+    # Step 4: build AMR binary matrix from best available source
+    if hamronization_path:
+        print_message("Using hAMRonization input for AMR features", "info")
+        binary_matrix, _ = parse_hamronization(hamronization_path)
+    elif kleborate_path:
+        print_message("Using Kleborate input for AMR features", "info")
+        binary_matrix, _ = parse_kleborate(kleborate_path)
+    else:
+        print_message("No AMR input provided — running ABRicate (ncbi db) automatically", "info")
+        kleborate_path = run_kleborate(assemblies_dir, output_dir)
+        binary_matrix, _ = parse_kleborate(kleborate_path)
 
-    # Step 5b: run PlasmidFinder and add replicon features
-    if plasmidfinder_path is None:
-        plasmidfinder_path = run_plasmidfinder(assemblies_dir, output_dir)
-    binary_matrix = parse_plasmidfinder(plasmidfinder_path, binary_matrix)
+    print_message(
+        f"AMR matrix: {binary_matrix.shape[0]} samples x {binary_matrix.shape[1]} features", "info"
+    )
+
+    # Step 4a: pad matrix so every assembly is represented (even if it had no hits)
+    all_assembly_stems = {Path(p).stem for p in find_assemblies(assemblies_dir)}
+    missing_stems = all_assembly_stems - set(binary_matrix.index)
+    if missing_stems:
+        print_message(f"Padding {len(missing_stems)} assemblies with no AMR hits into matrix", "info")
+        zero_rows = pd.DataFrame(
+            0,
+            index=sorted(missing_stems),
+            columns=binary_matrix.columns if len(binary_matrix.columns) else pd.Index([]),
+        )
+        binary_matrix = pd.concat([binary_matrix, zero_rows])
+
+    # Step 5: add replicon features from best available source
+    if plasmidfinder_path:
+        print_message("Using pre-run PlasmidFinder input for replicon features", "info")
+        binary_matrix = parse_plasmidfinder(plasmidfinder_path, binary_matrix)
+    else:
+        print_message("Running ABRicate (plasmidfinder db) for replicon features", "info")
+        abricate_rep_path = run_abricate(assemblies_dir, output_dir, db="plasmidfinder")
+        binary_matrix = parse_abricate_replicons(abricate_rep_path, binary_matrix)
+
+    # Step 5b: optionally enrich with co-occurrence (REP+AMR) features
+    if cooccurrence:
+        binary_matrix = add_cooccurrence_features(binary_matrix)
+
     features = list(binary_matrix.columns)
 
     # Step 6: greedy set cover for AMR/replicon diversity
@@ -56,16 +102,16 @@ def run_select(
 
     # Step 7: combine
     all_selected = phylo_selected + amr_selected
-    click.echo(f"\nFinal selection: {len(all_selected)} samples")
-    click.echo(f"  Phylogenetic ({n_phylo}): {phylo_selected}")
-    click.echo(f"  AMR/replicon ({n_amr}): {amr_selected}")
+    print_message(f"Final selection: {len(all_selected)} samples", "success")
+    print_message(f"  Phylogenetic ({n_phylo}): {phylo_selected}", "info")
+    print_message(f"  AMR/replicon ({n_amr}): {amr_selected}", "info")
 
     # Write selected.txt
     selected_path = os.path.join(output_dir, "selected.txt")
     with open(selected_path, "w") as fh:
         for sid in all_selected:
             fh.write(sid + "\n")
-    click.echo(f"\nSelected samples written to {selected_path}")
+    print_message(f"Selected samples written to {selected_path}", "success")
 
     # Write report.tsv
     _write_report(binary_matrix, phylo_selected, amr_selected, output_dir)
@@ -89,9 +135,12 @@ def _write_report(
     phylo_selected: list[str],
     amr_selected: list[str],
     output_dir: str,
-):
+) -> None:
     """Write report.tsv with per-sample details."""
     all_selected = set(phylo_selected + amr_selected)
+    phylo_set = set(phylo_selected)
+    amr_set = set(amr_selected)
+
     rows = []
     for sid in binary_matrix.index:
         amr_genes = []
@@ -103,9 +152,9 @@ def _write_report(
                 elif col.startswith("REP:"):
                     replicons.append(col[4:])
 
-        if sid in phylo_selected:
+        if sid in phylo_set:
             slot_type = "phylo"
-        elif sid in amr_selected:
+        elif sid in amr_set:
             slot_type = "amr"
         else:
             slot_type = "not_selected"
@@ -123,7 +172,7 @@ def _write_report(
     report_df = pd.DataFrame(rows)
     report_path = os.path.join(output_dir, "report.tsv")
     report_df.to_csv(report_path, sep="\t", index=False)
-    click.echo(f"Report written to {report_path}")
+    print_message(f"Report written to {report_path}", "success")
 
 
 def _write_coverage_summary(
@@ -131,27 +180,39 @@ def _write_coverage_summary(
     selected: list[str],
     features: list[str],
     output_dir: str,
-):
+) -> None:
     """Write human-readable coverage summary."""
     amr_features = [f for f in features if f.startswith("AMR:")]
     rep_features = [f for f in features if f.startswith("REP:")]
 
-    # All features in collection
-    all_amr = set()
-    all_rep = set()
-    for sid in binary_matrix.index:
-        row = binary_matrix.loc[sid]
-        all_amr.update(f for f in amr_features if row[f] == 1)
-        all_rep.update(f for f in rep_features if row[f] == 1)
+    # Vectorised: find features present anywhere in the collection
+    if amr_features:
+        all_amr = set(binary_matrix[amr_features].columns[binary_matrix[amr_features].any(axis=0)])
+    else:
+        all_amr: set[str] = set()
 
-    # Features covered by selection
-    sel_amr = set()
-    sel_rep = set()
-    for sid in selected:
-        if sid in binary_matrix.index:
-            row = binary_matrix.loc[sid]
-            sel_amr.update(f for f in amr_features if row[f] == 1)
-            sel_rep.update(f for f in rep_features if row[f] == 1)
+    if rep_features:
+        all_rep = set(binary_matrix[rep_features].columns[binary_matrix[rep_features].any(axis=0)])
+    else:
+        all_rep: set[str] = set()
+
+    # Features covered by selection (vectorised)
+    sel_in_matrix = [s for s in selected if s in binary_matrix.index]
+    if sel_in_matrix and amr_features:
+        sel_amr = set(
+            binary_matrix.loc[sel_in_matrix, amr_features]
+            .columns[binary_matrix.loc[sel_in_matrix, amr_features].any(axis=0)]
+        )
+    else:
+        sel_amr: set[str] = set()
+
+    if sel_in_matrix and rep_features:
+        sel_rep = set(
+            binary_matrix.loc[sel_in_matrix, rep_features]
+            .columns[binary_matrix.loc[sel_in_matrix, rep_features].any(axis=0)]
+        )
+    else:
+        sel_rep: set[str] = set()
 
     pct_amr = (len(sel_amr) / len(all_amr) * 100) if all_amr else 100.0
     pct_rep = (len(sel_rep) / len(all_rep) * 100) if all_rep else 100.0
@@ -162,16 +223,16 @@ def _write_coverage_summary(
         fh.write("=" * 40 + "\n\n")
         fh.write(f"Total samples in collection: {len(binary_matrix)}\n")
         fh.write(f"Samples selected: {len(selected)}\n\n")
-        fh.write(f"AMR gene features:\n")
+        fh.write("AMR gene features:\n")
         fh.write(f"  Total unique: {len(all_amr)}\n")
         fh.write(f"  Covered by selection: {len(sel_amr)}\n")
         fh.write(f"  Coverage: {pct_amr:.1f}%\n\n")
-        fh.write(f"Replicon types:\n")
+        fh.write("Replicon types:\n")
         fh.write(f"  Total unique: {len(all_rep)}\n")
         fh.write(f"  Covered by selection: {len(sel_rep)}\n")
         fh.write(f"  Coverage: {pct_rep:.1f}%\n\n")
-        fh.write(f"Selected samples:\n")
+        fh.write("Selected samples:\n")
         for sid in selected:
             fh.write(f"  {sid}\n")
 
-    click.echo(f"Coverage summary written to {summary_path}")
+    print_message(f"Coverage summary written to {summary_path}", "success")

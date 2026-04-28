@@ -1,59 +1,109 @@
 """Evaluate a selection against ground truth."""
 
-import os
+from __future__ import annotations
 
-import click
+import os
+import random
+from pathlib import Path
+
 import pandas as pd
 from Bio import Phylo
 
 from repseq.amr_cover import parse_kleborate
+from repseq.log import print_header, print_message
+
+_RANDOM_REPS = 100
 
 
 def faith_pd(tree, selected_names: set[str]) -> float:
-    """Calculate Faith's phylogenetic diversity for selected taxa.
-
-    Faith PD = sum of branch lengths connecting the selected taxa in the tree.
-    """
+    """Sum of branch lengths in the minimum spanning subtree of *selected_names*."""
     if not selected_names:
         return 0.0
 
-    # Get all terminal names, stripping extensions
-    from pathlib import Path
     terminal_map = {}
     for t in tree.get_terminals():
         name = Path(t.name).stem if t.name else ""
         terminal_map[name] = t
 
-    # Find selected terminals
-    selected_terminals = set()
-    for name in selected_names:
-        if name in terminal_map:
-            selected_terminals.add(terminal_map[name])
-
+    selected_terminals = {terminal_map[n] for n in selected_names if n in terminal_map}
     if len(selected_terminals) < 2:
         return 0.0
 
-    # Calculate total branch length of minimum spanning subtree
-    # For each internal node, include its branch length if it is an ancestor
-    # of at least one selected terminal
     total_pd = 0.0
 
-    def _has_selected_descendant(clade):
-        """Check if clade has any selected descendant and sum PD."""
+    def _has_selected_descendant(clade) -> bool:
         nonlocal total_pd
         if clade.is_terminal():
             return clade in selected_terminals
         has_sel = False
         for child in clade.clades:
-            child_has = _has_selected_descendant(child)
-            if child_has:
+            if _has_selected_descendant(child):
                 has_sel = True
-                bl = child.branch_length if child.branch_length else 0.0
-                total_pd += bl
+                total_pd += child.branch_length or 0.0
         return has_sel
 
     _has_selected_descendant(tree.root)
     return total_pd
+
+
+def _minimax_metrics(tree, selected_names: set[str], all_names: set[str]) -> dict[str, float]:
+    """For each unselected sample compute distance to its nearest selected neighbour.
+
+    Returns max and mean of those distances (the minimax criterion PARNAS optimises).
+    """
+    terminal_map = {Path(t.name).stem: t for t in tree.get_terminals() if t.name}
+    selected_terminals = [terminal_map[n] for n in selected_names if n in terminal_map]
+    unselected = [n for n in all_names - selected_names if n in terminal_map]
+
+    if not selected_terminals or not unselected:
+        return {"max_minimax_dist": 0.0, "mean_minimax_dist": 0.0}
+
+    min_dists = []
+    for name in unselected:
+        t = terminal_map[name]
+        min_dists.append(min(tree.distance(t, s) for s in selected_terminals))
+
+    return {
+        "max_minimax_dist":  round(max(min_dists), 6),
+        "mean_minimax_dist": round(sum(min_dists) / len(min_dists), 6),
+    }
+
+
+def _random_baseline(
+    tree,
+    binary_matrix: pd.DataFrame,
+    all_names: set[str],
+    n_selected: int,
+    total_faith: float,
+    n_reps: int = _RANDOM_REPS,
+) -> dict[str, float]:
+    """Compare repseq selection against random draws of the same size.
+
+    Returns mean Faith PD % and mean AMR coverage % over *n_reps* random selections.
+    """
+    amr_cols = [c for c in binary_matrix.columns if c.startswith("AMR:")]
+    all_amr = {c for c in amr_cols if binary_matrix[c].sum() > 0}
+    pool = [n for n in all_names if n in binary_matrix.index]
+    k = min(n_selected, len(pool))
+
+    faith_scores: list[float] = []
+    amr_scores: list[float] = []
+
+    for _ in range(n_reps):
+        rand_sel = set(random.sample(pool, k))
+        fd = faith_pd(tree, rand_sel)
+        faith_scores.append(fd / total_faith * 100 if total_faith > 0 else 100.0)
+
+        rand_amr: set[str] = set()
+        for sid in rand_sel:
+            row = binary_matrix.loc[sid]
+            rand_amr.update(c for c in amr_cols if row.get(c, 0) == 1)
+        amr_scores.append(len(rand_amr) / len(all_amr) * 100 if all_amr else 100.0)
+
+    return {
+        "random_mean_faith_pd_pct": round(sum(faith_scores) / n_reps, 2),
+        "random_mean_amr_pct":      round(sum(amr_scores) / n_reps, 2),
+    }
 
 
 def run_evaluate(
@@ -62,78 +112,70 @@ def run_evaluate(
     tree_path: str,
     output_dir: str,
 ) -> dict:
-    """Evaluate selection coverage metrics.
+    """Evaluate a selection: Faith PD, minimax distance, AMR coverage, and random baseline.
 
-    Returns dict with pct_amr_covered, pct_replicons_covered, pct_faith_pd.
+    Returns dict suitable for use in sweep Pareto table.
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    # Read selected sample IDs
     with open(selected_path) as fh:
         selected = {line.strip() for line in fh if line.strip()}
-    click.echo(f"Evaluating {len(selected)} selected samples...")
+    print_message(f"Evaluating {len(selected)} selected samples...", "info")
 
-    # Parse ground truth Kleborate
     binary_matrix, features = parse_kleborate(ground_truth_path)
-
     amr_features = [f for f in features if f.startswith("AMR:")]
     rep_features = [f for f in features if f.startswith("REP:")]
 
-    # Features present in the full collection
-    all_amr = set()
-    all_rep = set()
-    for sid in binary_matrix.index:
-        row = binary_matrix.loc[sid]
-        all_amr.update(f for f in amr_features if row.get(f, 0) == 1)
-        all_rep.update(f for f in rep_features if row.get(f, 0) == 1)
+    # Vectorised feature-coverage computation
+    all_amr = set(binary_matrix[amr_features].columns[binary_matrix[amr_features].any()]) if amr_features else set()
+    all_rep = set(binary_matrix[rep_features].columns[binary_matrix[rep_features].any()]) if rep_features else set()
 
-    # Features covered by selected samples
-    sel_amr = set()
-    sel_rep = set()
-    for sid in selected:
-        if sid in binary_matrix.index:
-            row = binary_matrix.loc[sid]
-            sel_amr.update(f for f in amr_features if row.get(f, 0) == 1)
-            sel_rep.update(f for f in rep_features if row.get(f, 0) == 1)
+    sel_in = [s for s in selected if s in binary_matrix.index]
+    sel_amr = set(binary_matrix.loc[sel_in, amr_features].columns[binary_matrix.loc[sel_in, amr_features].any()]) if sel_in and amr_features else set()
+    sel_rep = set(binary_matrix.loc[sel_in, rep_features].columns[binary_matrix.loc[sel_in, rep_features].any()]) if sel_in and rep_features else set()
 
-    pct_amr = (len(sel_amr) / len(all_amr) * 100) if all_amr else 100.0
-    pct_rep = (len(sel_rep) / len(all_rep) * 100) if all_rep else 100.0
+    pct_amr = len(sel_amr) / len(all_amr) * 100 if all_amr else 100.0
+    pct_rep = len(sel_rep) / len(all_rep) * 100 if all_rep else 100.0
 
     # Faith PD
     tree = Phylo.read(tree_path, "newick")
-    all_names = set()
-    for t in tree.get_terminals():
-        from pathlib import Path
-        name = Path(t.name).stem if t.name else ""
-        all_names.add(name)
-
+    all_names = {Path(t.name).stem for t in tree.get_terminals() if t.name}
     total_faith = faith_pd(tree, all_names)
     selected_faith = faith_pd(tree, selected)
-    pct_faith = (selected_faith / total_faith * 100) if total_faith > 0 else 100.0
+    pct_faith = selected_faith / total_faith * 100 if total_faith > 0 else 100.0
 
-    # Write coverage metrics
+    # Minimax distance (what PARNAS actually optimises)
+    minimax = _minimax_metrics(tree, selected, all_names)
+
+    # Random baseline (100 draws of the same N)
+    print_message(f"Computing random baseline ({_RANDOM_REPS} draws)...", "info")
+    baseline = _random_baseline(tree, binary_matrix, all_names, len(selected), total_faith)
+
     metrics = {
-        "pct_amr_covered": round(pct_amr, 2),
-        "pct_replicons_covered": round(pct_rep, 2),
-        "pct_faith_pd": round(pct_faith, 2),
-        "n_selected": len(selected),
-        "total_amr_features": len(all_amr),
-        "covered_amr_features": len(sel_amr),
-        "total_replicon_types": len(all_rep),
-        "covered_replicon_types": len(sel_rep),
-        "total_faith_pd": round(total_faith, 6),
-        "selected_faith_pd": round(selected_faith, 6),
+        "n_selected":               len(selected),
+        "pct_faith_pd":             round(pct_faith, 2),
+        "total_faith_pd":           round(total_faith, 6),
+        "selected_faith_pd":        round(selected_faith, 6),
+        "max_minimax_dist":         minimax["max_minimax_dist"],
+        "mean_minimax_dist":        minimax["mean_minimax_dist"],
+        "pct_amr_covered":          round(pct_amr, 2),
+        "pct_replicons_covered":    round(pct_rep, 2),
+        "total_amr_features":       len(all_amr),
+        "covered_amr_features":     len(sel_amr),
+        "total_replicon_types":     len(all_rep),
+        "covered_replicon_types":   len(sel_rep),
+        **baseline,
     }
 
     metrics_path = os.path.join(output_dir, "coverage_metrics.tsv")
-    metrics_df = pd.DataFrame([metrics])
-    metrics_df.to_csv(metrics_path, sep="\t", index=False)
-    click.echo(f"Coverage metrics written to {metrics_path}")
+    pd.DataFrame([metrics]).to_csv(metrics_path, sep="\t", index=False)
+    print_message(f"Coverage metrics written to {metrics_path}", "success")
 
-    # Human-readable summary
-    click.echo(f"\n--- Coverage Summary ---")
-    click.echo(f"AMR gene coverage:    {pct_amr:.1f}% ({len(sel_amr)}/{len(all_amr)} features)")
-    click.echo(f"Replicon coverage:    {pct_rep:.1f}% ({len(sel_rep)}/{len(all_rep)} types)")
-    click.echo(f"Faith PD coverage:    {pct_faith:.1f}%")
+    print_header("Coverage Summary")
+    print_message(f"Faith PD:             {pct_faith:.1f}%  (random baseline: {baseline['random_mean_faith_pd_pct']:.1f}%)", "info")
+    print_message(f"AMR gene coverage:    {pct_amr:.1f}%  (random baseline: {baseline['random_mean_amr_pct']:.1f}%)", "info")
+    print_message(f"Replicon coverage:    {pct_rep:.1f}%", "info")
+    print_message(f"Minimax dist (max):   {minimax['max_minimax_dist']:.4f}", "info")
+    print_message(f"Minimax dist (mean):  {minimax['mean_minimax_dist']:.4f}", "info")
 
     return metrics

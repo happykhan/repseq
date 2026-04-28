@@ -1,18 +1,203 @@
 """All plotting functions for repseq."""
 
+from __future__ import annotations
+
 import os
+from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import matplotlib.colors
 import matplotlib.gridspec as gridspec
 import numpy as np
 import pandas as pd
-import seaborn as sns
 from Bio import Phylo
 from sklearn.manifold import MDS
 
-import click
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+from repseq.log import print_message
+
+# Drug class -> colour mapping (matches reference figure palette)
+DRUG_CLASS_COLORS = {
+    "AGly":          "#4575b4",
+    "Bla":           "#fee090",
+    "Bla_Carb":      "#fdae61",
+    "Bla_ESBL":      "#ffffbf",
+    "Bla_ESBL_inhR": "#e0f3f8",
+    "Bla_inhR":      "#abd9e9",
+    "Col":           "#74add1",
+    "Fcyn":          "#9e0142",
+    "Flq":           "#d73027",
+    "Gly":           "#3288bd",
+    "MLS":           "#762a83",
+    "Phe":           "#e66101",
+    "Rif":           "#f46d43",
+    "Sul":           "#d9ef8b",
+    "Tet":           "#1a9850",
+    "Tgc":           "#66bd63",
+    "Tmt":           "#313695",
+    "REP":           "#b2abd2",
+    "Other":         "#cccccc",
+}
+
+DRUG_CLASS_NAMES = {
+    "AGly":          "Aminoglycoside",
+    "Bla":           "Beta-lactam",
+    "Bla_Carb":      "Carbapenem",
+    "Bla_ESBL":      "ESBL",
+    "Bla_ESBL_inhR": "ESBL + inhR",
+    "Bla_inhR":      "Beta-lactam inhR",
+    "Col":           "Colistin",
+    "Fcyn":          "Fosfomycin",
+    "Flq":           "Fluoroquinolone",
+    "Gly":           "Glycopeptide",
+    "MLS":           "Macrolide / MLS",
+    "Phe":           "Phenicol",
+    "Rif":           "Rifampicin",
+    "Sul":           "Sulfonamide",
+    "Tet":           "Tetracycline",
+    "Tgc":           "Tigecycline",
+    "Tmt":           "Trimethoprim",
+    "REP":           "Plasmid replicon",
+    "Other":         "Other",
+}
+
+
+def _col_drug_class(col_name: str) -> str:
+    """Extract drug class key from an AMR: or REP: feature column name."""
+    if col_name.startswith("REP:"):
+        return "REP"
+    if col_name.startswith("AMR:"):
+        parts = col_name.split(":")
+        if len(parts) >= 2:
+            return parts[1].replace("_acquired", "")
+    return "Other"
+
+
+def _get_leaf_order(tree) -> list[str]:
+    """Get leaf names in tree traversal order (topology order)."""
+    names = []
+    for clade in tree.get_terminals():
+        name = clade.name if clade.name else ""
+        name = Path(name).stem
+        names.append(name)
+    return names
+
+
+def _draw_tree_axes(
+    tree,
+    ax,
+    leaf_order: list[str],
+    selected_ids: list[str],
+    n_leaves: int,
+) -> None:
+    """Draw a dendrogram of *tree* on *ax*, rows aligned with *leaf_order*."""
+    leaf_y = {name: i for i, name in enumerate(leaf_order)}
+    positions: dict[int, tuple[float, float]] = {}
+
+    def _assign(clade, cumx: float = 0.0):
+        x = cumx + (clade.branch_length or 0.0)
+        if clade.is_terminal():
+            name = Path(clade.name or "").stem
+            positions[id(clade)] = (x, leaf_y.get(name, 0))
+        else:
+            for child in clade.clades:
+                _assign(child, x)
+            ys = [positions[id(c)][1] for c in clade.clades]
+            positions[id(clade)] = (x, (min(ys) + max(ys)) / 2.0)
+
+    _assign(tree.root)
+
+    max_x = max(v[0] for v in positions.values()) if positions else 1.0
+    if max_x == 0:
+        max_x = 1.0
+
+    def _draw(clade):
+        px, py = positions[id(clade)]
+        pxn = px / max_x
+        for child in clade.clades:
+            cx, cy = positions[id(child)]
+            cxn = cx / max_x
+            ax.plot([pxn, cxn], [cy, cy], color="black", linewidth=0.7, solid_capstyle="butt")
+            ax.plot([pxn, pxn], [py, cy], color="black", linewidth=0.7)
+            _draw(child)
+
+    _draw(tree.root)
+
+    for clade in tree.get_terminals():
+        name = Path(clade.name or "").stem
+        if name in selected_ids and name in leaf_y:
+            px, py = positions[id(clade)]
+            ax.plot(px / max_x, py, "o", color="red", markersize=4, zorder=10)
+
+    ax.set_xlim(-0.02, 1.05)
+    ax.set_ylim(n_leaves - 0.5, -0.5)
+    ax.axis("off")
+
+
+def _draw_drug_class_bar(ax, drug_classes: list[str], n_features: int) -> None:
+    """Draw a coloured rectangle per column indicating drug class."""
+    for i, dc in enumerate(drug_classes):
+        color = DRUG_CLASS_COLORS.get(dc, "#cccccc")
+        ax.add_patch(plt.Rectangle(
+            (i - 0.5, 0), 1, 1,
+            color=color, ec="white", lw=0.4,
+            transform=ax.transData,
+        ))
+    ax.set_xlim(-0.5, n_features - 0.5)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+
+def _draw_legend(ax, drug_classes: list[str]) -> None:
+    """Draw drug-class legend + present/absent key in *ax*."""
+    ax.axis("off")
+    y = 0.98
+
+    ax.text(0.05, y, "Drug class", fontsize=8, fontweight="bold",
+            transform=ax.transAxes, va="top")
+    y -= 0.04
+
+    seen: list[str] = []
+    for dc in drug_classes:
+        if dc not in seen:
+            seen.append(dc)
+
+    for dc in seen:
+        color = DRUG_CLASS_COLORS.get(dc, "#cccccc")
+        label = DRUG_CLASS_NAMES.get(dc, dc)
+        ax.add_patch(plt.Rectangle(
+            (0.02, y - 0.015), 0.1, 0.025,
+            transform=ax.transAxes, color=color, ec="black", lw=0.5,
+        ))
+        ax.text(0.16, y - 0.003, label, fontsize=7, transform=ax.transAxes, va="center")
+        y -= 0.038
+
+    y -= 0.02
+    ax.text(0.05, y, "Key", fontsize=8, fontweight="bold",
+            transform=ax.transAxes, va="top")
+    y -= 0.04
+
+    for label, color in [
+        ("Present",    "#f46d43"),
+        ("Absent",     "#d0d0d0"),
+        ("Not typed",  "#f5f5f5"),
+        ("Selected",   "red"),
+    ]:
+        if label == "Selected":
+            ax.plot(
+                [0.07], [y - 0.003], "o",
+                color=color, markersize=6, transform=ax.transAxes, zorder=10,
+                clip_on=False,
+            )
+        else:
+            ax.add_patch(plt.Rectangle(
+                (0.02, y - 0.015), 0.1, 0.025,
+                transform=ax.transAxes, color=color, ec="black", lw=0.5,
+            ))
+        ax.text(0.16, y - 0.003, label, fontsize=7, transform=ax.transAxes, va="center")
+        y -= 0.035
 
 
 def plot_elbow(diversity_csv: str, n_chosen: int, output_dir: str) -> str:
@@ -21,16 +206,14 @@ def plot_elbow(diversity_csv: str, n_chosen: int, output_dir: str) -> str:
     try:
         df = pd.read_csv(diversity_csv)
     except Exception as e:
-        click.echo(f"Warning: cannot read diversity CSV for elbow plot: {e}")
+        print_message(f"Cannot read diversity CSV for elbow plot: {e}", "warning")
         return out_path
 
-    # PARNAS diversity CSV typically has columns: k, diversity (or similar)
-    # Try to detect the columns
     cols = df.columns.tolist()
     if len(cols) >= 2:
         x_col, y_col = cols[0], cols[1]
     else:
-        click.echo("Warning: diversity CSV has fewer than 2 columns, skipping elbow plot.")
+        print_message("Diversity CSV has fewer than 2 columns, skipping elbow plot.", "warning")
         return out_path
 
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -44,7 +227,7 @@ def plot_elbow(diversity_csv: str, n_chosen: int, output_dir: str) -> str:
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-    click.echo(f"Elbow plot saved to {out_path}")
+    print_message(f"Elbow plot saved to {out_path}", "success")
     return out_path
 
 
@@ -54,33 +237,28 @@ def plot_scatter(
     selected_ids: list[str],
     output_dir: str,
 ) -> str:
-    """PCoA of Mash distances, coloured by dominant resistance class, selected starred."""
+    """PCoA of Mash distances, coloured by AMR gene count, selected starred."""
     out_path = os.path.join(output_dir, "scatter_plot.png")
 
-    # Parse tree to get distance matrix
     try:
         tree = Phylo.read(tree_path, "newick")
     except Exception as e:
-        click.echo(f"Warning: cannot parse tree for scatter plot: {e}")
+        print_message(f"Cannot parse tree for scatter plot: {e}", "warning")
         return out_path
 
-    # Get all terminal names
-    terminals = [t for t in tree.get_terminals()]
+    terminals = list(tree.get_terminals())
     names = []
     for t in terminals:
         name = t.name
         if name:
-            # Strip file extension if present
-            from pathlib import Path
             name = Path(name).stem
         names.append(name)
 
     n = len(names)
     if n < 3:
-        click.echo("Warning: fewer than 3 samples, skipping scatter plot.")
+        print_message("Fewer than 3 samples, skipping scatter plot.", "warning")
         return out_path
 
-    # Build distance matrix from tree
     dist_matrix = np.zeros((n, n))
     for i in range(n):
         for j in range(i + 1, n):
@@ -91,7 +269,6 @@ def plot_scatter(
             dist_matrix[i, j] = d
             dist_matrix[j, i] = d
 
-    # MDS for 2D embedding (PCoA-like)
     mds = MDS(
         n_components=2,
         metric="precomputed",
@@ -102,19 +279,14 @@ def plot_scatter(
     )
     coords = mds.fit_transform(dist_matrix)
 
-    # Determine dominant resistance class per sample
     amr_cols = [c for c in binary_matrix.columns if c.startswith("AMR:")]
-    # Group by resistance class prefix (the gene column name)
-    class_counts = {}
-    for sid in names:
-        if sid in binary_matrix.index:
-            row = binary_matrix.loc[sid]
-            class_counts[sid] = sum(row[amr_cols]) if amr_cols else 0
+    counts = []
+    for name in names:
+        if name in binary_matrix.index and amr_cols:
+            counts.append(int(binary_matrix.loc[name, amr_cols].sum()))
         else:
-            class_counts[sid] = 0
+            counts.append(0)
 
-    # Colour by total AMR gene count (binned)
-    counts = [class_counts.get(name, 0) for name in names]
     max_count = max(counts) if counts and max(counts) > 0 else 1
 
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -123,22 +295,19 @@ def plot_scatter(
 
     for i, name in enumerate(names):
         c = cmap(norm(counts[i]))
-        is_selected = name in selected_ids
-        marker = "*" if is_selected else "o"
-        size = 200 if is_selected else 60
-        zorder = 10 if is_selected else 5
+        is_sel = name in selected_ids
         ax.scatter(
             coords[i, 0], coords[i, 1],
-            c=[c], marker=marker, s=size, zorder=zorder,
-            edgecolors="black" if is_selected else "grey",
-            linewidths=1.5 if is_selected else 0.5,
+            c=[c], marker="*" if is_sel else "o",
+            s=200 if is_sel else 60,
+            zorder=10 if is_sel else 5,
+            edgecolors="black" if is_sel else "grey",
+            linewidths=1.5 if is_sel else 0.5,
         )
-        if is_selected:
-            ax.annotate(
-                name, (coords[i, 0], coords[i, 1]),
-                fontsize=7, ha="left", va="bottom",
-                xytext=(5, 5), textcoords="offset points",
-            )
+        if is_sel:
+            ax.annotate(name, (coords[i, 0], coords[i, 1]),
+                        fontsize=7, ha="left", va="bottom",
+                        xytext=(5, 5), textcoords="offset points")
 
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
@@ -152,19 +321,8 @@ def plot_scatter(
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-    click.echo(f"Scatter plot saved to {out_path}")
+    print_message(f"Scatter plot saved to {out_path}", "success")
     return out_path
-
-
-def _get_leaf_order(tree) -> list[str]:
-    """Get leaf names in tree traversal order (topology order)."""
-    from pathlib import Path
-    names = []
-    for clade in tree.get_terminals():
-        name = clade.name if clade.name else ""
-        name = Path(name).stem
-        names.append(name)
-    return names
 
 
 def plot_tree_heatmap(
@@ -173,130 +331,120 @@ def plot_tree_heatmap(
     selected_ids: list[str],
     output_dir: str,
 ) -> str:
-    """Phylogenetic tree (left) + AMR gene/replicon heatmap (right), selected highlighted."""
+    """Phylogenetic tree (left) + AMR/replicon heatmap (right)."""
     out_path = os.path.join(output_dir, "tree_heatmap.png")
 
     try:
         tree = Phylo.read(tree_path, "newick")
     except Exception as e:
-        click.echo(f"Warning: cannot parse tree for tree+heatmap plot: {e}")
+        print_message(f"Cannot parse tree for tree+heatmap plot: {e}", "warning")
         return out_path
 
     leaf_order = _get_leaf_order(tree)
     n_leaves = len(leaf_order)
 
     if n_leaves == 0:
-        click.echo("Warning: no leaves in tree, skipping tree+heatmap plot.")
+        print_message("No leaves in tree, skipping tree+heatmap plot.", "warning")
         return out_path
 
-    # Reorder binary matrix to match tree leaf order
-    available = [s for s in leaf_order if s in binary_matrix.index]
     missing = [s for s in leaf_order if s not in binary_matrix.index]
     if missing:
-        click.echo(f"Warning: {len(missing)} samples in tree not found in Kleborate matrix.")
+        print_message(f"{len(missing)} samples in tree not found in AMR/replicon matrix.", "warning")
 
-    # Only plot samples present in both tree and matrix
-    plot_order = [s for s in leaf_order if s in binary_matrix.index]
-    if not plot_order:
-        click.echo("Warning: no overlapping samples between tree and matrix.")
+    if binary_matrix.empty or len(binary_matrix.columns) == 0:
+        print_message("No features to plot in heatmap.", "warning")
         return out_path
 
-    heatmap_data = binary_matrix.loc[plot_order]
+    # Sort columns: AMR classes (alphabetical by class then gene), then REP
+    amr_cols = sorted([c for c in binary_matrix.columns if c.startswith("AMR:")])
+    rep_cols = sorted([c for c in binary_matrix.columns if c.startswith("REP:")])
+    ordered_cols = amr_cols + rep_cols
+    n_features = len(ordered_cols)
 
-    # Determine figure dimensions
-    n_features = len(heatmap_data.columns)
-    fig_width = max(12, 6 + n_features * 0.3)
-    fig_height = max(6, n_leaves * 0.3 + 2)
-
-    fig = plt.figure(figsize=(fig_width, fig_height))
-    gs = gridspec.GridSpec(1, 2, width_ratios=[1, max(1, n_features * 0.15)], wspace=0.02)
-
-    # Left panel: tree as dendrogram
-    ax_tree = fig.add_subplot(gs[0])
-    ax_tree.set_xlim(0, 1)
-    ax_tree.set_ylim(0, n_leaves)
-
-    # Draw tree using Bio.Phylo
-    Phylo.draw(
-        tree, do_show=False, axes=ax_tree,
-        label_func=lambda c: "",  # We add labels manually
-    )
-
-    # Adjust y-axis to align with heatmap
-    ax_tree.set_ylabel("")
-    ax_tree.set_xlabel("")
-    ax_tree.set_yticks([])
-
-    # Get y positions of terminals from the drawn tree
-    # Bio.Phylo.draw assigns y positions 0..n-1 to terminals
-    y_positions = {}
-    for i, name in enumerate(leaf_order):
-        y_positions[name] = i
-
-    # Add labels with highlighting for selected samples
-    for name in plot_order:
-        y_pos = y_positions.get(name, 0)
-        colour = "red" if name in selected_ids else "black"
-        weight = "bold" if name in selected_ids else "normal"
-        # Add a red marker for selected samples
-        if name in selected_ids:
-            ax_tree.plot(
-                ax_tree.get_xlim()[1] * 0.95, y_pos + 1,
-                "o", color="red", markersize=5, zorder=10,
+    # Expand matrix to cover all tree leaves (NaN for leaves not in binary_matrix)
+    heatmap_data = pd.DataFrame(np.nan, index=leaf_order, columns=ordered_cols, dtype=float)
+    for sid in binary_matrix.index:
+        if sid in heatmap_data.index:
+            heatmap_data.loc[sid, ordered_cols] = (
+                binary_matrix.loc[sid, ordered_cols].values.astype(float)
             )
 
-    ax_tree.spines["top"].set_visible(False)
-    ax_tree.spines["right"].set_visible(False)
+    # Figure dimensions
+    row_h = 0.22
+    col_w = 0.22
+    tree_w = 2.8
+    bar_h = 0.45
+    legend_w = 2.2
+    heat_w = max(4.0, n_features * col_w)
+    heat_h = max(4.0, n_leaves * row_h)
 
-    # Right panel: heatmap
-    ax_heat = fig.add_subplot(gs[1])
+    fig_w = tree_w + heat_w + legend_w + 0.8
+    fig_h = bar_h + heat_h + 0.6
 
-    if n_features > 0:
-        # Clean up feature names for display
-        display_cols = []
-        for c in heatmap_data.columns:
-            if c.startswith("AMR:"):
-                display_cols.append(c[4:])
-            elif c.startswith("REP:"):
-                display_cols.append(c[4:])
-            else:
-                display_cols.append(c)
+    fig = plt.figure(figsize=(fig_w, fig_h))
 
-        sns.heatmap(
-            heatmap_data.values,
-            ax=ax_heat,
-            cmap="YlOrRd",
-            cbar=False,
-            xticklabels=display_cols,
-            yticklabels=False,
-            linewidths=0.5,
-            linecolor="white",
-        )
-        ax_heat.set_xticklabels(ax_heat.get_xticklabels(), rotation=90, fontsize=7)
+    gs = gridspec.GridSpec(
+        2, 3,
+        height_ratios=[bar_h, heat_h],
+        width_ratios=[tree_w, heat_w, legend_w],
+        hspace=0.005,
+        wspace=0.12,
+        figure=fig,
+    )
 
-        # Add sample labels on right side with highlighting
-        ax_heat.set_yticks(np.arange(len(plot_order)) + 0.5)
-        labels = []
-        for name in plot_order:
-            labels.append(name)
-        ax_heat.set_yticklabels(labels, fontsize=7)
-        ax_heat.yaxis.tick_right()
+    ax_tree = fig.add_subplot(gs[:, 0])
+    ax_bar = fig.add_subplot(gs[0, 1])
+    ax_heat = fig.add_subplot(gs[1, 1])
+    ax_leg = fig.add_subplot(gs[:, 2])
 
-        # Bold + red for selected samples
-        for i, label in enumerate(ax_heat.get_yticklabels()):
-            if plot_order[i] in selected_ids:
-                label.set_color("red")
-                label.set_fontweight("bold")
-    else:
-        ax_heat.text(0.5, 0.5, "No AMR/replicon features detected",
-                     ha="center", va="center", transform=ax_heat.transAxes)
+    # Tree
+    _draw_tree_axes(tree, ax_tree, leaf_order, selected_ids, n_leaves)
 
-    ax_heat.set_title("AMR genes & replicon types")
+    # Drug class colour bar
+    drug_classes = [_col_drug_class(c) for c in ordered_cols]
+    _draw_drug_class_bar(ax_bar, drug_classes, n_features)
 
-    fig.suptitle("Phylogenetic tree with AMR/replicon heatmap", fontsize=12, y=1.01)
+    # Heatmap
+    # Encode: NaN -> -1 (no data), 0 -> 0 (absent), 1 -> 1 (present)
+    plot_vals = np.where(np.isnan(heatmap_data.values), -1.0, heatmap_data.values)
+
+    cmap_heat = matplotlib.colors.ListedColormap(["#f5f5f5", "#d0d0d0", "#f46d43"])
+    norm_heat = matplotlib.colors.BoundaryNorm([-1.5, -0.5, 0.5, 1.5], cmap_heat.N)
+
+    ax_heat.imshow(plot_vals, cmap=cmap_heat, norm=norm_heat,
+                   aspect="auto", interpolation="none")
+
+    # Grid lines
+    ax_heat.set_xticks(np.arange(n_features + 1) - 0.5, minor=True)
+    ax_heat.set_yticks(np.arange(n_leaves + 1) - 0.5, minor=True)
+    ax_heat.grid(which="minor", color="white", linewidth=0.3)
+    ax_heat.tick_params(which="minor", bottom=False, left=False)
+
+    # Column labels
+    display_cols = [c.split(":")[-1] for c in ordered_cols]
+    ax_heat.set_xticks(range(n_features))
+    ax_heat.set_xticklabels(display_cols, rotation=90, fontsize=6, ha="center")
+    ax_heat.tick_params(axis="x", bottom=False, top=True, labelbottom=False, labeltop=True)
+    ax_heat.xaxis.set_label_position("top")
+
+    # Row labels
+    ax_heat.set_yticks(range(n_leaves))
+    ax_heat.set_yticklabels(leaf_order, fontsize=6)
+    ax_heat.yaxis.tick_left()
+    for i, tick_label in enumerate(ax_heat.get_yticklabels()):
+        name = leaf_order[i]
+        if name in selected_ids:
+            tick_label.set_color("red")
+            tick_label.set_fontweight("bold")
+        elif name not in binary_matrix.index:
+            tick_label.set_color("#aaaaaa")
+
+    # Legend
+    _draw_legend(ax_leg, drug_classes)
+
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    click.echo(f"Tree+heatmap plot saved to {out_path}")
+    print_message(f"Tree+heatmap plot saved to {out_path}", "success")
     return out_path
 
 
@@ -309,7 +457,10 @@ def plot_pareto(pareto_tsv: str, output_dir: str) -> str:
 
     if "pct_amr_covered" in df.columns and "pct_replicons_covered" in df.columns:
         ax.plot(df["alpha"], df["pct_amr_covered"], "o-", label="AMR coverage %", color="#d7191c")
-        ax.plot(df["alpha"], df["pct_replicons_covered"], "s-", label="Replicon coverage %", color="#2c7bb6")
+        ax.plot(
+            df["alpha"], df["pct_replicons_covered"], "s-",
+            label="Replicon coverage %", color="#2c7bb6",
+        )
     if "pct_faith_pd" in df.columns:
         ax.plot(df["alpha"], df["pct_faith_pd"], "^-", label="Faith PD %", color="#1a9641")
 
@@ -323,5 +474,5 @@ def plot_pareto(pareto_tsv: str, output_dir: str) -> str:
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-    click.echo(f"Pareto plot saved to {out_path}")
+    print_message(f"Pareto plot saved to {out_path}", "success")
     return out_path

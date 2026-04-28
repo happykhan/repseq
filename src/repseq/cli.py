@@ -1,10 +1,11 @@
 """CLI entry point for repseq."""
 
+from __future__ import annotations
+
 import click
 
-from repseq.select import run_select
-
 from repseq.evaluate import run_evaluate
+from repseq.select import run_select
 from repseq.sweep import run_sweep
 
 
@@ -39,14 +40,27 @@ def cli():
     "plasmidfinder_tsv",
     default=None,
     type=click.Path(exists=True, dir_okay=False),
-    help="Pre-run PlasmidFinder merged TSV. If absent, PlasmidFinder is run automatically.",
+    help="Pre-run PlasmidFinder merged TSV. If absent, ABRicate (plasmidfinder db) is run.",
+)
+@click.option(
+    "--hamronization",
+    "hamronization_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="hAMRonization TSV (from AMRFinder+, RGI, ResFinder etc.). Takes priority over --kleborate.",
 )
 @click.option("--n", "n_select", default=10, type=int, help="Number of isolates to select.")
 @click.option(
     "--alpha",
     default=0.5,
     type=click.FloatRange(0.0, 1.0),
-    help="Budget split: alpha=1.0 → pure phylo, alpha=0.0 → pure AMR/replicon.",
+    help="Budget split: alpha=1.0 -> pure phylo, alpha=0.0 -> pure AMR/replicon.",
+)
+@click.option(
+    "--cooccurrence",
+    is_flag=True,
+    default=False,
+    help="Add REP+AMR co-occurrence features to capture plasmid-gene linkage.",
 )
 @click.option(
     "--output-dir",
@@ -54,15 +68,17 @@ def cli():
     type=click.Path(file_okay=False),
     help="Output directory (created if needed).",
 )
-def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, n_select, alpha, output_dir):
+def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, n_select, alpha, cooccurrence, output_dir):
     """Select N representative isolates from an assembly collection."""
     run_select(
         assemblies_dir=assemblies,
         tree_path=tree,
         kleborate_path=kleborate_tsv,
         plasmidfinder_path=plasmidfinder_tsv,
+        hamronization_path=hamronization_tsv,
         n=n_select,
         alpha=alpha,
+        cooccurrence=cooccurrence,
         output_dir=output_dir,
     )
 
@@ -122,6 +138,13 @@ def evaluate(selected, ground_truth, tree, output_dir):
     type=click.Path(exists=True, dir_okay=False),
     help="Pre-run Kleborate TSV.",
 )
+@click.option(
+    "--hamronization",
+    "hamronization_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="hAMRonization TSV. Takes priority over --kleborate.",
+)
 @click.option("--n", "n_select", default=10, type=int, help="Number of isolates to select.")
 @click.option(
     "--ground-truth",
@@ -135,12 +158,13 @@ def evaluate(selected, ground_truth, tree, output_dir):
     type=click.Path(file_okay=False),
     help="Output directory.",
 )
-def sweep(assemblies, tree, kleborate_tsv, n_select, ground_truth, output_dir):
+def sweep(assemblies, tree, kleborate_tsv, hamronization_tsv, n_select, ground_truth, output_dir):
     """Sweep alpha from 0 to 1, generating a Pareto curve."""
     run_sweep(
         assemblies_dir=assemblies,
         tree_path=tree,
         kleborate_path=kleborate_tsv,
+        hamronization_path=hamronization_tsv,
         n=n_select,
         ground_truth_path=ground_truth,
         output_dir=output_dir,
