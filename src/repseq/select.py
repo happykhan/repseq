@@ -5,7 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+from Bio import Phylo
+from scipy.spatial.distance import pdist, squareform
 
 from repseq.amr_cover import (
     add_cooccurrence_features,
@@ -17,6 +20,7 @@ from repseq.amr_cover import (
     run_abricate,
     run_kleborate,
 )
+from repseq.joint import compute_joint_dist, run_kmedoids, tree_to_dist_matrix
 from repseq.log import print_message
 from repseq.phylo import find_assemblies, run_mashtree, run_parnas
 from repseq.plots import plot_elbow, plot_scatter, plot_tree_heatmap
@@ -33,6 +37,8 @@ def run_select(
     output_dir: str,
     cooccurrence: bool = False,
     abricate_replicons_path: str | None = None,
+    method: str = "split",
+    joint_weight: float = 0.5,
 ) -> list[str]:
     """Run the full selection pipeline.
 
@@ -47,15 +53,8 @@ def run_select(
     if tree_path is None:
         tree_path = run_mashtree(assemblies_dir, output_dir)
 
-    # Step 2: budget split
-    n_phylo = round(alpha * n)
-    n_amr = n - n_phylo
-    print_message(f"Budget split: {n_phylo} phylogenetic + {n_amr} AMR/replicon (alpha={alpha})", "info")
-
-    # Step 3: PARNAS phylogenetic selection
-    phylo_selected = run_parnas(tree_path, n_phylo, output_dir)
-
-    # Step 4: build AMR binary matrix from best available source
+    # Step 2: build AMR binary matrix from best available source
+    #         (needed for both split and joint methods)
     if hamronization_path:
         print_message("Using hAMRonization input for AMR features", "info")
         binary_matrix, _ = parse_hamronization(hamronization_path)
@@ -101,14 +100,56 @@ def run_select(
 
     features = list(binary_matrix.columns)
 
-    # Step 6: greedy set cover for AMR/replicon diversity
-    amr_selected = greedy_set_cover(binary_matrix, phylo_selected, n_amr)
+    # Step 6: select samples (method-dependent)
+    if method == "joint":
+        # Joint k-medoids on blended tree + AMR distance
+        tree = Phylo.read(tree_path, "newick")
+        tree_terminals = {Path(t.name).stem for t in tree.get_terminals() if t.name}
+        names = [n_id for n_id in binary_matrix.index if n_id in tree_terminals]
 
-    # Step 7: combine
-    all_selected = phylo_selected + amr_selected
-    print_message(f"Final selection: {len(all_selected)} samples", "success")
-    print_message(f"  Phylogenetic ({n_phylo}): {phylo_selected}", "info")
-    print_message(f"  AMR/replicon ({n_amr}): {amr_selected}", "info")
+        if len(names) < n:
+            print_message(
+                f"Only {len(names)} samples present in both tree and AMR matrix "
+                f"(requested {n}); selecting all of them.",
+                "warning",
+            )
+
+        # Tree distance matrix
+        tree_dm = tree_to_dist_matrix(tree, names)
+
+        # AMR Jaccard distance matrix (handle all-zero rows gracefully)
+        amr_arr = binary_matrix.loc[names].values.astype(float)
+        amr_dm = squareform(pdist(amr_arr, metric="jaccard"))
+        amr_dm = np.nan_to_num(amr_dm, nan=0.0)
+
+        # Blend and run k-medoids
+        combined = compute_joint_dist(tree_dm, amr_dm, joint_weight)
+        indices = run_kmedoids(combined, n)
+        all_selected = [names[i] for i in indices]
+        phylo_selected: list[str] = []
+        amr_selected = all_selected
+
+        print_message(
+            f"Joint k-medoids selected {len(all_selected)} samples "
+            f"(joint_weight={joint_weight})",
+            "success",
+        )
+        slot_label = "joint"
+    else:
+        # Default: budget-split between PARNAS phylo and greedy AMR set cover
+        n_phylo = round(alpha * n)
+        n_amr = n - n_phylo
+        print_message(
+            f"Budget split: {n_phylo} phylogenetic + {n_amr} AMR/replicon (alpha={alpha})",
+            "info",
+        )
+        phylo_selected = run_parnas(tree_path, n_phylo, output_dir)
+        amr_selected = greedy_set_cover(binary_matrix, phylo_selected, n_amr)
+        all_selected = phylo_selected + amr_selected
+        print_message(f"Final selection: {len(all_selected)} samples", "success")
+        print_message(f"  Phylogenetic ({n_phylo}): {phylo_selected}", "info")
+        print_message(f"  AMR/replicon ({n_amr}): {amr_selected}", "info")
+        slot_label = "amr"
 
     # Write selected.txt
     selected_path = os.path.join(output_dir, "selected.txt")
@@ -118,7 +159,7 @@ def run_select(
     print_message(f"Selected samples written to {selected_path}", "success")
 
     # Write report.tsv
-    _write_report(binary_matrix, phylo_selected, amr_selected, output_dir)
+    _write_report(binary_matrix, phylo_selected, amr_selected, output_dir, slot_label=slot_label)
 
     # Write coverage_summary.txt
     _write_coverage_summary(binary_matrix, all_selected, features, output_dir)
@@ -139,8 +180,16 @@ def _write_report(
     phylo_selected: list[str],
     amr_selected: list[str],
     output_dir: str,
+    slot_label: str = "amr",
 ) -> None:
-    """Write report.tsv with per-sample details."""
+    """Write report.tsv with per-sample details.
+
+    Parameters
+    ----------
+    slot_label : str
+        Label used for AMR-selected samples in the slot_type column.
+        Pass "joint" when using the joint k-medoids method.
+    """
     all_selected = set(phylo_selected + amr_selected)
     phylo_set = set(phylo_selected)
     amr_set = set(amr_selected)
@@ -159,7 +208,7 @@ def _write_report(
         if sid in phylo_set:
             slot_type = "phylo"
         elif sid in amr_set:
-            slot_type = "amr"
+            slot_type = slot_label
         else:
             slot_type = "not_selected"
 

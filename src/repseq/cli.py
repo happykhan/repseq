@@ -63,12 +63,25 @@ def cli():
     help="Add REP+AMR co-occurrence features to capture plasmid-gene linkage.",
 )
 @click.option(
+    "--method",
+    type=click.Choice(["split", "joint"]),
+    default="split",
+    help="Selection method: 'split' (default alpha budget) or 'joint' (k-medoids on blended tree+AMR distance).",
+)
+@click.option(
+    "--joint-weight",
+    "joint_weight",
+    default=0.5,
+    type=click.FloatRange(0.0, 1.0),
+    help="Weight for AMR distance in joint method (0=pure phylo, 1=pure AMR). Only used with --method joint.",
+)
+@click.option(
     "--output-dir",
     default=".",
     type=click.Path(file_okay=False),
     help="Output directory (created if needed).",
 )
-def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, n_select, alpha, cooccurrence, output_dir):
+def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, n_select, alpha, cooccurrence, method, joint_weight, output_dir):
     """Select N representative isolates from an assembly collection."""
     run_select(
         assemblies_dir=assemblies,
@@ -80,6 +93,8 @@ def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv
         alpha=alpha,
         cooccurrence=cooccurrence,
         output_dir=output_dir,
+        method=method,
+        joint_weight=joint_weight,
     )
 
 
