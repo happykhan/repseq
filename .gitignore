@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# pixi
+.pixi/
+
+# Test data (large files)
+test_data/*.fasta
+test_data/*.fa
+test_data/*.fna
+test_data/*.csv
+
+# Output files
+*.nwk
+*.tsv
+*.png
+*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store

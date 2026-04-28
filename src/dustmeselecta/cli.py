@@ -1,0 +1,138 @@
+"""CLI entry point for dustmeselecta."""
+
+import click
+
+from dustmeselecta.select import run_select
+from dustmeselecta.evaluate import run_evaluate
+from dustmeselecta.sweep import run_sweep
+
+
+@click.group()
+@click.version_option()
+def cli():
+    """dustmeselecta -- select representative bacterial isolates for long-read sequencing."""
+
+
+@cli.command()
+@click.option(
+    "--assemblies",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Folder of .fasta/.fa/.fna assembly files.",
+)
+@click.option(
+    "--tree",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-built Newick tree. If absent, mashtree is run.",
+)
+@click.option(
+    "--kleborate",
+    "kleborate_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-run Kleborate TSV. If absent, kleborate is run.",
+)
+@click.option("--n", "n_select", default=10, type=int, help="Number of isolates to select.")
+@click.option(
+    "--alpha",
+    default=0.5,
+    type=click.FloatRange(0.0, 1.0),
+    help="Budget split: alpha*N phylogenetic, (1-alpha)*N AMR/replicon.",
+)
+@click.option(
+    "--output-dir",
+    default=".",
+    type=click.Path(file_okay=False),
+    help="Output directory (created if needed).",
+)
+def select(assemblies, tree, kleborate_tsv, n_select, alpha, output_dir):
+    """Select N representative isolates from an assembly collection."""
+    run_select(
+        assemblies_dir=assemblies,
+        tree_path=tree,
+        kleborate_path=kleborate_tsv,
+        n=n_select,
+        alpha=alpha,
+        output_dir=output_dir,
+    )
+
+
+@cli.command()
+@click.option(
+    "--selected",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="selected.txt file with one sample ID per line.",
+)
+@click.option(
+    "--ground-truth",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Complete Kleborate TSV for all samples.",
+)
+@click.option(
+    "--tree",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Complete Newick tree for Faith PD calculation.",
+)
+@click.option(
+    "--output-dir",
+    default=".",
+    type=click.Path(file_okay=False),
+    help="Output directory.",
+)
+def evaluate(selected, ground_truth, tree, output_dir):
+    """Evaluate a selection against ground truth."""
+    run_evaluate(
+        selected_path=selected,
+        ground_truth_path=ground_truth,
+        tree_path=tree,
+        output_dir=output_dir,
+    )
+
+
+@cli.command()
+@click.option(
+    "--assemblies",
+    required=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="Folder of .fasta/.fa/.fna assembly files.",
+)
+@click.option(
+    "--tree",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-built Newick tree.",
+)
+@click.option(
+    "--kleborate",
+    "kleborate_tsv",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Pre-run Kleborate TSV.",
+)
+@click.option("--n", "n_select", default=10, type=int, help="Number of isolates to select.")
+@click.option(
+    "--ground-truth",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Complete Kleborate TSV for evaluation.",
+)
+@click.option(
+    "--output-dir",
+    default=".",
+    type=click.Path(file_okay=False),
+    help="Output directory.",
+)
+def sweep(assemblies, tree, kleborate_tsv, n_select, ground_truth, output_dir):
+    """Sweep alpha from 0 to 1, generating a Pareto curve."""
+    run_sweep(
+        assemblies_dir=assemblies,
+        tree_path=tree,
+        kleborate_path=kleborate_tsv,
+        n=n_select,
+        ground_truth_path=ground_truth,
+        output_dir=output_dir,
+    )

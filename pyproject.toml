@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dustmeselecta"
+version = "0.1.0"
+description = "Select representative bacterial isolates for long-read sequencing using phylogenetic + AMR diversity"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "pandas>=2.0",
+    "scipy",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn",
+    "biopython",
+]
+
+[project.scripts]
+dms = "dustmeselecta.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]

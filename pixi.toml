@@ -1,0 +1,22 @@
+[project]
+name = "dustmeselecta"
+version = "0.1.0"
+description = "Select representative bacterial isolates for long-read sequencing using phylogenetic + AMR diversity"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[dependencies]
+mashtree = "*"
+minimap2 = "*"
+
+[pypi-dependencies]
+dustmeselecta = { path = ".", editable = true }
+kleborate = ">=3.0"
+parnas = "*"
+click = ">=8.0"
+pandas = ">=2.0"
+scipy = "*"
+scikit-learn = "*"
+matplotlib = "*"
+seaborn = "*"
+biopython = "*"
