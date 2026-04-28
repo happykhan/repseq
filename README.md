@@ -3,7 +3,7 @@
 Select representative bacterial isolates from a large short-read collection for follow-up long-read sequencing.
 
 Given a folder of assemblies and a budget of N samples, `repseq` splits slots between:
-- **Phylogenetic diversity** — PARNAS exact k-medoids on a Mash distance tree
+- **Phylogenetic diversity** — PARNAS exact k-medoids on a tree
 - **AMR/plasmid diversity** — greedy set cover on resistance gene and replicon profiles
 
 The balance between the two is controlled by a single `--alpha` parameter.
