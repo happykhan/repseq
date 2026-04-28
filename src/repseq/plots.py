@@ -590,10 +590,7 @@ def plot_diversity_curve(curve_df: pd.DataFrame, output_dir: str) -> str:
         if vals.isna().all():
             continue
         col_max = vals.max()
-        if col_max > 0:
-            normed = vals / col_max * 100.0
-        else:
-            normed = vals * 0.0
+        normed = vals / col_max * 100.0 if col_max > 0 else vals * 0.0
         ax.plot(
             curve_df["k"],
             normed,
@@ -607,7 +604,7 @@ def plot_diversity_curve(curve_df: pd.DataFrame, output_dir: str) -> str:
     ax.axhline(y=90, color="grey", linestyle="--", linewidth=1, alpha=0.7, label="90% threshold")
 
     ax.set_xlabel("k (number of representatives)")
-    ax.set_ylabel("% of maximum diversity")
+    ax.set_ylabel("% of diversity at k=max")
     ax.set_ylim(0, 105)
     ax.set_title("Diversity saturation curve — how many representatives are needed?")
     ax.legend(loc="lower right")

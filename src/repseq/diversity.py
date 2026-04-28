@@ -17,71 +17,44 @@ from repseq.plots import plot_diversity_curve
 
 
 def greedy_jaccard_curve(jac_dm: np.ndarray, max_k: int) -> dict[int, float]:
-    """Return {k: mean_pairwise_jaccard} for k=2..max_k using a greedy algorithm.
+    """Return {k: pct_of_total_pairwise_diversity} for k=2..max_k.
 
-    At each step, the candidate that maximises the mean pairwise Jaccard
-    distance among the selected set is added.
+    Greedy: at each step add the sample with the highest sum of distances to
+    the current selection (maximises cumulative pairwise diversity).
 
-    Parameters
-    ----------
-    jac_dm : np.ndarray
-        Symmetric Jaccard distance matrix (n x n), with 0 on the diagonal.
-    max_k : int
-        Maximum subset size to evaluate.
-
-    Returns
-    -------
-    dict[int, float]
-        Mapping from k to mean pairwise Jaccard distance.
+    Value is normalised to % of the total pairwise diversity in the full
+    collection, so the curve starts low at k=2 and grows toward 100% at k=N —
+    directly comparable to PARNAS's Diversity_covered column.
     """
     n = jac_dm.shape[0]
     max_k = min(max_k, n)
 
-    # Edge case: no diversity at all
-    if jac_dm.max() == 0.0:
+    total_sum = jac_dm.sum() / 2.0  # sum of all unordered pairs
+    if total_sum == 0.0:
         return {k: 0.0 for k in range(2, max_k + 1)}
 
-    # Initialise with the pair having the highest Jaccard distance
-    best_i, best_j = 0, 1
-    best_val = jac_dm[0, 1]
-    for i in range(n):
-        for j in range(i + 1, n):
-            if jac_dm[i, j] > best_val:
-                best_val = jac_dm[i, j]
-                best_i, best_j = i, j
-
+    # Start with the pair with highest Jaccard distance
+    upper = np.triu(jac_dm, k=1)
+    best_i, best_j = (int(x) for x in np.unravel_index(np.argmax(upper), upper.shape))
     selected = [best_i, best_j]
-    # current_sum tracks sum of all ordered pairs (i.e. jac_dm[sel, sel].sum())
-    # For a symmetric matrix with 0 diagonal, sum = 2 * jac_dm[i, j] for a pair
-    current_sum = 2.0 * jac_dm[best_i, best_j]
+    pair_sum = float(jac_dm[best_i, best_j])
 
-    result: dict[int, float] = {}
-    # k=2: mean = sum / (2*1) = jac_dm[i,j]
-    result[2] = current_sum / (2 * 1)
+    result: dict[int, float] = {2: pair_sum / total_sum * 100}
+
+    # dist_to_sel[i] = sum of distances from sample i to all currently selected samples
+    dist_to_sel = jac_dm[:, selected].sum(axis=1).astype(float)
 
     all_indices = set(range(n))
-
-    for k in range(3, max_k + 1):
-        candidates = all_indices - set(selected)
+    for _ in range(3, max_k + 1):
+        candidates = list(all_indices - set(selected))
         if not candidates:
             break
-
-        best_candidate = -1
-        best_new_mean = -1.0
-        n_ordered_pairs = k * (k - 1)
-
-        for c in candidates:
-            # Adding c: new_sum = current_sum + 2 * sum(jac_dm[c, s] for s in selected)
-            contrib = 2.0 * jac_dm[c, selected].sum()
-            new_sum = current_sum + contrib
-            new_mean = new_sum / n_ordered_pairs
-            if new_mean > best_new_mean:
-                best_new_mean = new_mean
-                best_candidate = c
-
-        selected.append(best_candidate)
-        current_sum += 2.0 * jac_dm[best_candidate, selected[:-1]].sum()
-        result[k] = best_new_mean
+        gains = dist_to_sel[candidates]
+        best_c = candidates[int(np.argmax(gains))]
+        pair_sum += dist_to_sel[best_c]
+        selected.append(best_c)
+        dist_to_sel += jac_dm[:, best_c]
+        result[len(selected)] = pair_sum / total_sum * 100
 
     return result
 
@@ -225,9 +198,9 @@ def run_diversity_curve(
             print_message(f"{col_label}: no data or all zeros", "warning")
             continue
         col_max = vals.max()
+        normed = vals / col_max * 100.0
         for threshold_pct in [80, 90, 95]:
-            threshold = col_max * threshold_pct / 100.0
-            hits = curve_df.loc[curve_df[col_name] >= threshold, "k"]
+            hits = curve_df.loc[normed >= threshold_pct, "k"]
             if not hits.empty:
                 k_at = int(hits.iloc[0])
                 print_message(
