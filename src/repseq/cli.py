@@ -249,6 +249,105 @@ def nsga3(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv,
     )
 
 
+@cli.command()
+@click.option(
+    "--metadata",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Metadata TSV or Excel file with isolate data.",
+)
+@click.option(
+    "--id-col",
+    "id_col",
+    default="isolate_id",
+    help="Column name for isolate ID.",
+)
+@click.option(
+    "--lab-col",
+    "lab_col",
+    default="laboratory",
+    help="Column name for laboratory/site.",
+)
+@click.option(
+    "--date-col",
+    "date_col",
+    default="spec_date",
+    help="Column name for specimen date.",
+)
+@click.option(
+    "--tier-col",
+    "tier_col",
+    default=None,
+    help="Column with pre-assigned tier (Tier1_CR, Tier2_MDR, etc.).",
+)
+@click.option(
+    "--resist-pattern-col",
+    "resist_pattern_col",
+    default=None,
+    help="Column with semicolon-separated resistant drug abbreviations.",
+)
+@click.option(
+    "--r-drugs-list-col",
+    "r_drugs_list_col",
+    default=None,
+    help="Column with comma-separated resistant drugs (raw).",
+)
+@click.option(
+    "--plasmids-col",
+    "plasmids_col",
+    default=None,
+    help="Column with comma-separated plasmid replicons.",
+)
+@click.option(
+    "--carb-nonsus-col",
+    "carb_nonsus_col",
+    default=None,
+    help="Column with boolean for carbapenem non-susceptibility.",
+)
+@click.option(
+    "--colistin-r-col",
+    "colistin_r_col",
+    default=None,
+    help="Column with boolean for colistin resistance.",
+)
+@click.option(
+    "--exclude-drugs",
+    "exclude_drugs_str",
+    default=None,
+    help="Comma-separated drugs to exclude from resist_pattern (e.g. SAM,CTT,TGC).",
+)
+@click.option(
+    "--output-dir",
+    default=".",
+    type=click.Path(file_okay=False),
+    help="Output directory (created if needed).",
+)
+def june(metadata, id_col, lab_col, date_col, tier_col, resist_pattern_col,
+         r_drugs_list_col, plasmids_col, carb_nonsus_col, colistin_r_col,
+         exclude_drugs_str, output_dir):
+    """Prioritise isolates for long-read sequencing using June Gayeta's method."""
+    from repseq.june import run_june_prioritisation
+
+    exclude_drugs = None
+    if exclude_drugs_str:
+        exclude_drugs = {d.strip() for d in exclude_drugs_str.split(",") if d.strip()}
+
+    run_june_prioritisation(
+        metadata_path=metadata,
+        output_dir=output_dir,
+        id_col=id_col,
+        lab_col=lab_col,
+        date_col=date_col,
+        tier_col=tier_col,
+        resist_pattern_col=resist_pattern_col,
+        r_drugs_list_col=r_drugs_list_col,
+        plasmids_col=plasmids_col,
+        carb_nonsus_col=carb_nonsus_col,
+        colistin_r_col=colistin_r_col,
+        exclude_drugs=exclude_drugs,
+    )
+
+
 @cli.command(name="diversity-curve")
 @click.option(
     "--assemblies",
