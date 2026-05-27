@@ -206,29 +206,91 @@ TIER_ORDER = {
     "Tier4_pansusceptible": 3,
 }
 
-BATCH_ORDER = {"Primary": 0, "Secondary": 1}
+BATCH_ORDER = {"Site_Guarantee": 0, "Primary": 1, "Secondary": 2}
 
 
-def select_primary_batch(df: pd.DataFrame) -> pd.Series:
-    """Assign Primary/Secondary batch labels.
+def select_site_guarantees(df: pd.DataFrame) -> set:
+    """Select the highest-ranked isolate from each unique site.
 
-    Primary = 1 per site per RP x PP combination (most recent spec_date).
-    Secondary = all others.
+    For each site, the "best" isolate is the one with the best tier (lowest
+    TIER_ORDER value), then the most frequent RP x PP combo (highest
+    combo_total), then the most recent spec_date.
 
-    Returns a Series of 'Primary'/'Secondary' aligned with df index.
+    Returns a set of DataFrame index values for the guaranteed isolates.
     """
     df = df.copy()
-    # Sort so that within each (rp_pp_combo, laboratory), most recent date comes first
+    df["_tier_ord"] = df["tier"].map(TIER_ORDER)
+    df["_spec_date_ts"] = pd.to_datetime(df["spec_date"])
+
+    # Compute combo frequency to use as a tiebreaker
+    combo_counts = df["rp_pp_combo"].value_counts().to_dict()
+    df["_combo_freq"] = df["rp_pp_combo"].map(combo_counts)
+
+    # Sort: best tier first, then most frequent combo, then most recent date,
+    # then isolate_id for determinism
+    df = df.sort_values(
+        ["_tier_ord", "_combo_freq", "_spec_date_ts", "isolate_id"],
+        ascending=[True, False, False, True],
+    )
+
+    # Pick the first (best) isolate per site
+    guaranteed_idx = set()
+    for _site, group in df.groupby("laboratory"):
+        guaranteed_idx.add(group.index[0])
+
+    df.drop(columns=["_tier_ord", "_spec_date_ts", "_combo_freq"], inplace=True)
+    return guaranteed_idx
+
+
+def select_primary_batch(
+    df: pd.DataFrame,
+    guarantee_sites: bool = True,
+) -> pd.Series:
+    """Assign Site_Guarantee/Primary/Secondary batch labels.
+
+    When *guarantee_sites* is True (default):
+      - Site_Guarantee = 1 per sentinel site (highest-ranked isolate from
+        each unique site). This ensures every site contributes at least one
+        sequence, even if it only has Tier 4 isolates.
+      - Primary = 1 per site per RP x PP combination (most recent spec_date),
+        excluding any isolates already tagged as Site_Guarantee.
+      - Secondary = all others.
+
+    When *guarantee_sites* is False, Site_Guarantee is skipped and the
+    original Primary/Secondary logic applies.
+
+    Returns a Series of batch labels aligned with df index.
+    """
+    df = df.copy()
+
+    # Start with all Secondary
+    result = pd.Series("Secondary", index=df.index)
+
+    # Compute combo frequency for site guarantee selection
+    if guarantee_sites:
+        combo_counts = df["rp_pp_combo"].value_counts().to_dict()
+        df["_combo_freq"] = df["rp_pp_combo"].map(combo_counts)
+        guaranteed_idx = select_site_guarantees(df)
+        result[result.index.isin(guaranteed_idx)] = "Site_Guarantee"
+        if "_combo_freq" in df.columns:
+            df.drop(columns=["_combo_freq"], inplace=True)
+
+    # Primary: 1 per site per RP x PP combo (most recent date), excluding guarantees
     df["_spec_date_ts"] = pd.to_datetime(df["spec_date"])
     df = df.sort_values(
         ["rp_pp_combo", "laboratory", "_spec_date_ts"],
         ascending=[True, True, False],
     )
 
-    # Mark the first occurrence per (rp_pp_combo, laboratory) as Primary
-    is_first = ~df.duplicated(subset=["rp_pp_combo", "laboratory"], keep="first")
-    result = pd.Series("Secondary", index=df.index)
-    result[is_first] = "Primary"
+    # Only consider non-guarantee isolates for Primary assignment
+    non_guarantee_mask = result != "Site_Guarantee"
+    df_for_primary = df[non_guarantee_mask.reindex(df.index)]
+
+    is_first = ~df_for_primary.duplicated(
+        subset=["rp_pp_combo", "laboratory"], keep="first"
+    )
+    result[is_first[is_first].index] = "Primary"
+
     return result.reindex(df.index)
 
 
@@ -241,12 +303,14 @@ def compute_priority_rank(df: pd.DataFrame) -> pd.DataFrame:
     Adds: priority_rank, combo_total (total isolates per RP x PP combo),
     combo_sites (number of unique sites per combo).
 
-    The 5-level sort:
-      1. Tier (Tier1 first)
-      2. Primary before Secondary
-      3. Most widespread RP x PP combination first (highest total count)
-      4. Site alphabetical within RP x PP
-      5. Most recent spec_date within site x RP x PP
+    The sort hierarchy:
+      - Site_Guarantee isolates rank first (sorted by tier within them)
+      - Then the standard 5-level sort for Primary and Secondary:
+        1. Tier (Tier1 first)
+        2. Primary before Secondary
+        3. Most widespread RP x PP combination first (highest total count)
+        4. Site alphabetical within RP x PP
+        5. Most recent spec_date within site x RP x PP
     """
     df = df.copy()
 
@@ -262,27 +326,29 @@ def compute_priority_rank(df: pd.DataFrame) -> pd.DataFrame:
     df["_batch_ord"] = df["selection_batch"].map(BATCH_ORDER)
     df["_spec_date_ts"] = pd.to_datetime(df["spec_date"])
 
-    # Sort by the 5-level hierarchy
-    # Level 3 tiebreaker for same combo_total: combo_sites DESC, then
-    # laboratory ASC (which also serves as Level 4), then spec_date DESC (Level 5).
-    # Additional tiebreaker: accession_no ASC for complete determinism.
+    # _is_guarantee: 0 for Site_Guarantee, 1 for everything else.
+    # This ensures guarantees come first, then within the non-guarantee
+    # block the standard tier > batch > combo sort applies.
+    df["_is_guarantee"] = (df["selection_batch"] != "Site_Guarantee").astype(int)
+
     df = df.sort_values(
         [
+            "_is_guarantee",  # Level 0: Site_Guarantee block first
             "_tier_ord",      # Level 1: Tier
-            "_batch_ord",     # Level 2: Primary before Secondary
+            "_batch_ord",     # Level 2: Primary before Secondary (within non-guarantee)
             "combo_total",    # Level 3: most widespread combo first
             "combo_sites",    # Level 3 tiebreaker: most sites
             "laboratory",     # Level 4: site alphabetical
             "_spec_date_ts",  # Level 5: most recent date first
             "isolate_id",     # Final tiebreaker: accession_no
         ],
-        ascending=[True, True, False, False, True, False, True],
+        ascending=[True, True, True, False, False, True, False, True],
     )
 
     df["priority_rank"] = range(1, len(df) + 1)
 
     # Drop temp columns
-    df = df.drop(columns=["_tier_ord", "_batch_ord", "_spec_date_ts"])
+    df = df.drop(columns=["_tier_ord", "_batch_ord", "_spec_date_ts", "_is_guarantee"])
 
     return df
 
@@ -335,6 +401,7 @@ def run_june_prioritisation(
     carb_nonsus_col: str | None = None,
     colistin_r_col: str | None = None,
     exclude_drugs: set[str] | None = None,
+    guarantee_sites: bool = True,
 ) -> pd.DataFrame:
     """Run June's prioritisation method.
 
@@ -366,6 +433,10 @@ def run_june_prioritisation(
         Column with bool/True/False for colistin resistance.
     exclude_drugs : set[str] | None
         Drugs to exclude from resist_pattern derivation (e.g. SAM, CTT, TGC).
+    guarantee_sites : bool
+        If True (default), guarantee at least 1 isolate from every sentinel
+        site before applying the standard Primary batch selection. Isolates
+        selected this way are tagged selection_batch = "Site_Guarantee".
 
     Returns
     -------
@@ -441,8 +512,8 @@ def run_june_prioritisation(
     # Build RP x PP combo key
     df["rp_pp_combo"] = df["rp_code"] + "_" + df["pp_code"]
 
-    # Assign Primary/Secondary batch
-    df["selection_batch"] = select_primary_batch(df)
+    # Assign Site_Guarantee/Primary/Secondary batch
+    df["selection_batch"] = select_primary_batch(df, guarantee_sites=guarantee_sites)
 
     # Compute priority rank
     df = compute_priority_rank(df)
@@ -460,12 +531,15 @@ def _write_outputs(df: pd.DataFrame, output_dir: str) -> None:
     df.to_csv(full_path, sep="\t", index=False)
     print_message(f"Full priority list written to {full_path}", "success")
 
-    # 2. Primary Batch only
-    primary = df[df["selection_batch"] == "Primary"]
+    # 2. Primary Batch (Site_Guarantee + Primary)
+    primary = df[df["selection_batch"].isin(("Site_Guarantee", "Primary"))]
     primary_path = os.path.join(output_dir, "primary_batch.tsv")
     primary.to_csv(primary_path, sep="\t", index=False)
+    n_guarantee = (primary["selection_batch"] == "Site_Guarantee").sum()
+    n_primary = (primary["selection_batch"] == "Primary").sum()
     print_message(
-        f"Primary batch ({len(primary)} isolates) written to {primary_path}",
+        f"Primary batch ({len(primary)} isolates: {n_guarantee} site guarantees, "
+        f"{n_primary} primary) written to {primary_path}",
         "success",
     )
 
@@ -512,13 +586,159 @@ def _write_outputs(df: pd.DataFrame, output_dir: str) -> None:
         print_message(f"Plasmid profile summary written to {pp_path}", "success")
 
     # Summary stats
+    n_secondary = (df["selection_batch"] == "Secondary").sum()
     print_message(
-        f"Total: {len(df)} isolates, {len(primary)} Primary, "
-        f"{len(df) - len(primary)} Secondary",
+        f"Total: {len(df)} isolates, {len(primary)} selected "
+        f"({n_guarantee} site guarantees, {n_primary} primary), "
+        f"{n_secondary} secondary",
         "info",
     )
     for tier in TIER_ORDER:
         n = (df["tier"] == tier).sum()
+        ng = ((df["tier"] == tier) & (df["selection_batch"] == "Site_Guarantee")).sum()
         np_ = ((df["tier"] == tier) & (df["selection_batch"] == "Primary")).sum()
         if n > 0:
-            print_message(f"  {tier}: {n} isolates ({np_} Primary)", "info")
+            print_message(
+                f"  {tier}: {n} isolates ({ng} site guarantees, {np_} primary)",
+                "info",
+            )
+
+
+# ---------------------------------------------------------------------------
+# Flat CSV input
+# ---------------------------------------------------------------------------
+
+_CSV_REQUIRED_COLS = {"isolate_id", "site"}
+_CSV_TIER_DERIVATION_COLS = {"resist_pattern", "drug_classes", "carb_nonsus"}
+
+
+def run_june_from_csv(
+    csv_path: str,
+    output_dir: str,
+    guarantee_sites: bool = True,
+) -> pd.DataFrame:
+    """Run June's prioritisation from a single flat CSV file.
+
+    The CSV must contain:
+      - isolate_id
+      - site (sentinel site name)
+      - tier (pre-assigned) OR resist_pattern + drug_classes + carb_nonsus
+      - replicons (comma-separated PlasmidFinder replicon list)
+
+    Optional columns:
+      - spec_date (used as a tiebreaker; defaults to 2000-01-01 if absent)
+      - rp_code / pp_code (pre-computed; skip derivation if both present)
+
+    Parameters
+    ----------
+    csv_path : str
+        Path to the flat CSV file.
+    output_dir : str
+        Directory for output files.
+    guarantee_sites : bool
+        If True (default), guarantee at least 1 isolate per sentinel site.
+
+    Returns
+    -------
+    pd.DataFrame
+        Full ranked output.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Read input — support both CSV and TSV based on extension
+    ext = os.path.splitext(csv_path)[1].lower()
+    if ext in (".tsv",):
+        df = pd.read_csv(csv_path, sep="\t")
+    elif ext in (".xlsx", ".xls"):
+        df = pd.read_excel(csv_path)
+    else:
+        df = pd.read_csv(csv_path)
+
+    print_message(f"Loaded {len(df)} isolates from {csv_path}", "info")
+
+    # Validate required columns
+    missing = _CSV_REQUIRED_COLS - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"Required columns missing: {missing}. "
+            f"Available: {list(df.columns)}"
+        )
+
+    # Standardise: rename site -> laboratory
+    df = df.rename(columns={"site": "laboratory"})
+
+    # Handle spec_date (optional)
+    if "spec_date" in df.columns:
+        df["spec_date"] = pd.to_datetime(df["spec_date"])
+    else:
+        df["spec_date"] = pd.Timestamp("2000-01-01")
+
+    # Derive or use tier
+    if "tier" in df.columns:
+        df["tier"] = df["tier"].fillna("Tier4_pansusceptible")
+    elif _CSV_TIER_DERIVATION_COLS.issubset(set(df.columns)):
+        # Derive tier from resist_pattern, drug_classes, carb_nonsus
+        def _derive_tier_csv(row: pd.Series) -> str:
+            pattern = str(row["resist_pattern"])
+            if pattern in ("pan-susceptible", "", "nan"):
+                drugs: list[str] = []
+            else:
+                drugs = [d.strip() for d in pattern.split(";")]
+            carb = _parse_bool(row["carb_nonsus"])
+            # Colistin resistance: check if COL is in the drug list
+            colistin_r = "COL" in [d.upper() for d in drugs]
+            return assign_tier(drugs, carb, colistin_r)
+
+        df["tier"] = df.apply(_derive_tier_csv, axis=1)
+    else:
+        print_message(
+            "No tier column and insufficient columns to derive it; "
+            "all isolates assigned Tier4_pansusceptible",
+            "warning",
+        )
+        df["tier"] = "Tier4_pansusceptible"
+
+    # Derive resist_pattern if not present
+    if "resist_pattern" not in df.columns:
+        df["resist_pattern"] = "pan-susceptible"
+    else:
+        df["resist_pattern"] = df["resist_pattern"].fillna("pan-susceptible")
+
+    # Derive plasmid_profile from replicons column
+    if "replicons" in df.columns:
+        df["plasmid_profile"] = df["replicons"].apply(parse_plasmid_profile)
+    else:
+        df["plasmid_profile"] = "none"
+
+    # Use pre-computed RP/PP codes or derive them
+    if "rp_code" in df.columns and "pp_code" in df.columns:
+        print_message("Using pre-computed rp_code and pp_code columns", "info")
+    else:
+        if "rp_code" not in df.columns:
+            df["rp_code"] = assign_rp_codes(df, "resist_pattern", tier_col="tier")
+        if "pp_code" not in df.columns:
+            df["pp_code"] = assign_pp_codes(df, "plasmid_profile")
+
+    # Build RP x PP combo key
+    df["rp_pp_combo"] = df["rp_code"] + "_" + df["pp_code"]
+
+    # Assign batch
+    df["selection_batch"] = select_primary_batch(df, guarantee_sites=guarantee_sites)
+
+    # Compute priority rank
+    df = compute_priority_rank(df)
+
+    # Write outputs
+    _write_outputs(df, output_dir)
+
+    return df
+
+
+def _parse_bool(val: object) -> bool:
+    """Parse a value to bool, handling common CSV representations."""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    s = str(val).strip().lower()
+    return s in ("true", "1", "yes", "y")

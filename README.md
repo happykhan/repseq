@@ -1,12 +1,15 @@
 # repseq
 
-Select representative bacterial isolates from a large short-read collection for follow-up long-read sequencing.
+Select representative bacterial isolates for long-read sequencing from surveillance collections.
 
-Given a folder of assemblies and a budget of N samples, `repseq` splits slots between:
-- **Phylogenetic diversity** — PARNAS exact k-medoids on a tree
-- **AMR/plasmid diversity** — greedy set cover on resistance gene and replicon profiles
+`repseq` has two main workflows:
 
-The balance between the two is controlled by a single `--alpha` parameter.
+1. **`repseq june`** -- Hierarchical priority ranking for sentinel site surveillance (e.g. the ARSRL Kleb survey). This is the primary workflow documented below.
+2. **`repseq select`** -- Phylogenetic + AMR diversity selection from assembly collections (research use).
+
+This README covers the `june` workflow. It will be reviewed by David and Aruka.
+
+---
 
 ## Install
 
@@ -18,80 +21,194 @@ cd repseq
 pixi install
 ```
 
-## Quick start
+Verify the install:
 
 ```bash
-# Select 20 representatives — fully automatic (runs mashtree + ABRicate)
-pixi run repseq select --assemblies assemblies/ --n 20
-
-# With a pre-built tree and Kleborate output (Klebsiella collections)
-pixi run repseq select --assemblies assemblies/ --tree tree.nwk --kleborate kleborate.tsv --n 20
-
-# With hAMRonization output (any species — AMRFinder+, RGI, ResFinder etc.)
-pixi run repseq select --assemblies assemblies/ --hamronization amrfinder.tsv --n 20
-
-# Favour AMR/plasmid diversity (30% phylo slots, 70% AMR slots)
-pixi run repseq select --assemblies assemblies/ --n 20 --alpha 0.3 --output-dir results/
-
-# Add co-occurrence features to capture plasmid-gene linkage
-pixi run repseq select --assemblies assemblies/ --n 20 --cooccurrence
+pixi run repseq june --help
 ```
 
-## Subcommands
+---
+
+## Preparing your input CSV
+
+The simplest way to use `repseq june` is with a single flat CSV file. Each row is one isolate.
+
+### Required columns
+
+| Column | Description | Example |
+|--------|-------------|---------|
+| `isolate_id` | Unique identifier for the isolate (accession number) | `KPN-2024-0042` |
+| `site` | Sentinel site name | `Manila` |
+| `tier` | Resistance tier (see table below) | `Tier1_CR` |
+| `replicons` | Comma-separated PlasmidFinder replicon list. Leave blank if none | `IncFIB(K), IncFII(K)` |
+
+### Tier values
+
+| Tier | Meaning | How to assign |
+|------|---------|---------------|
+| `Tier1_CR` | Carbapenem-resistant (R or I to any carbapenem) | ETP, IPM, or MEM non-susceptible |
+| `Tier2_MDR` | Multi-drug resistant | Resistant to 3+ antimicrobial classes (excluding AMP/PEN), or colistin-resistant |
+| `Tier3_nonMDR_resistant` | Resistant but not MDR | Resistant to 1-2 non-PEN classes |
+| `Tier4_pansusceptible` | Pan-susceptible | No resistance detected (AMP-only counts as pan-susceptible) |
+
+If you do not have pre-assigned tiers, you can omit the `tier` column and instead provide:
+- `resist_pattern` -- semicolon-separated resistant drug abbreviations (e.g. `AMP;CIP;GEN;SXT`)
+- `drug_classes` -- number of resistant drug classes
+- `carb_nonsus` -- `True` or `False` for carbapenem non-susceptibility
+
+repseq will derive the tier automatically from these columns.
+
+### Optional columns
+
+| Column | Description | Default if absent |
+|--------|-------------|-------------------|
+| `spec_date` | Specimen collection date (YYYY-MM-DD). Used as a tiebreaker when two isolates have the same profile at the same site | All dates set to 2000-01-01 (no preference) |
+| `rp_code` | Pre-computed resistance profile code (e.g. `RP1`). Both `rp_code` and `pp_code` must be present to skip derivation | Derived from `resist_pattern` frequency |
+| `pp_code` | Pre-computed plasmid profile code (e.g. `PP1`) | Derived from `replicons` frequency |
+| `resist_pattern` | Semicolon-separated resistant drug abbreviations. Used for RP code derivation and tier derivation | `pan-susceptible` |
+
+### Example CSV
+
+```
+isolate_id,site,tier,replicons,spec_date,resist_pattern
+KPN-001,Manila,Tier1_CR,"IncFIB(K), IncFII(K)",2024-06-15,AMP;ETP;CIP;GEN
+KPN-002,Manila,Tier2_MDR,IncX4,2024-05-20,AMP;CIP;GEN;SXT
+KPN-003,Cebu,Tier1_CR,"IncFIB(K), IncFII(K)",2024-07-01,AMP;IPM;MEM
+KPN-004,Cebu,Tier4_pansusceptible,,2024-04-10,pan-susceptible
+KPN-005,Davao,Tier4_pansusceptible,,2024-03-22,pan-susceptible
+KPN-006,Manila,Tier1_CR,IncFIB(K),2024-08-01,AMP;ETP;CIP;GEN
+KPN-007,Davao,Tier3_nonMDR_resistant,,2024-06-30,AMP;CIP
+KPN-008,Cebu,Tier2_MDR,"IncFIB(K), IncX4",2024-05-15,AMP;CIP;GEN;SXT
+```
+
+Save this as `input.csv`.
+
+---
+
+## Running the prioritisation
+
+### Step 1: Run the command
+
+```bash
+pixi run repseq june --csv input.csv --output-dir results/
+```
+
+This takes a few seconds. You will see a summary printed to the terminal.
+
+### Step 2: Review the outputs
+
+The `results/` folder will contain:
+
+| File | What it contains |
+|------|------------------|
+| `priority_full.tsv` | All isolates ranked from 1 to N, with tier, batch, RP/PP codes, and priority rank |
+| `primary_batch.tsv` | Only the isolates selected for sequencing (Site_Guarantee + Primary batch) |
+| `selected.txt` | One isolate ID per line -- hand this to the sequencing team |
+| `profile_summary.tsv` | Summary per resistance profile: how many isolates, how many sites, how many selected |
+| `site_tier_summary.tsv` | Cross-tabulation of sites vs tiers |
+| `plasmid_profiles.tsv` | Summary of plasmid replicon combinations |
+
+### Step 3: Check the selected list
+
+Open `results/selected.txt`. These are the isolates to sequence. The file contains one accession number per line.
+
+Open `results/primary_batch.tsv` for the full details of each selected isolate, including why it was selected (the `selection_batch` column).
+
+---
+
+## How the selection works
+
+### Site guarantee (hard floor)
+
+Every sentinel site contributes at least one isolate, regardless of resistance tier. This is a hard floor: even if a site has only Tier 4 (pan-susceptible) isolates, one will be selected.
+
+The rationale (from the 22 May TGIBF meeting): absence of resistance at a sentinel site is surveillance data. You cannot distinguish "no resistance detected" from "not sampled" if the site is missing entirely.
+
+For each site, repseq picks the highest-ranked isolate (best tier, then most frequent profile combination, then most recent specimen date). These isolates are tagged `selection_batch = "Site_Guarantee"` in the output.
+
+To disable the site guarantee:
+
+```bash
+pixi run repseq june --csv input.csv --no-guarantee-sites --output-dir results/
+```
+
+### Primary batch (1 per site per profile combination)
+
+After the site guarantees, repseq selects one isolate per site per RP x PP combination. RP is the resistance profile code (isolates with the same resistance drug pattern get the same RP code). PP is the plasmid profile code (isolates with the same replicon combination get the same PP code).
+
+Within each site and RP x PP combination, the most recent isolate (by specimen date) is selected. These are tagged `selection_batch = "Primary"`.
+
+### Secondary batch
+
+All remaining isolates are tagged `selection_batch = "Secondary"`. They appear in `priority_full.tsv` but not in `primary_batch.tsv` or `selected.txt`.
+
+### Priority ranking
+
+All isolates (Site_Guarantee, Primary, and Secondary) are assigned a priority rank from 1 (highest priority) to N (lowest). The ranking follows this order:
+
+1. **Site guarantees first** -- sorted by tier within the guarantee block
+2. **Then tier** -- Tier1_CR before Tier2_MDR before Tier3 before Tier4
+3. **Then batch** -- Primary before Secondary
+4. **Then combo frequency** -- the most widespread RP x PP combination (most isolates across the collection) ranks first
+5. **Then site** -- alphabetical within the same combo
+6. **Then date** -- most recent specimen date first
+7. **Then accession** -- alphabetical for complete determinism
+
+---
+
+## Worked example
+
+Using the 8-isolate CSV from above:
+
+```bash
+pixi run repseq june --csv input.csv --output-dir example_results/
+```
+
+Expected output in `priority_full.tsv` (simplified):
+
+| priority_rank | isolate_id | site | tier | selection_batch | rp_code | pp_code |
+|---|---|---|---|---|---|---|
+| 1 | KPN-006 | Manila | Tier1_CR | Site_Guarantee | RP1 | PP2 |
+| 2 | KPN-003 | Cebu | Tier1_CR | Site_Guarantee | RP2 | PP1 |
+| 3 | KPN-007 | Davao | Tier3_nonMDR_resistant | Site_Guarantee | ... | ... |
+| 4 | KPN-001 | Manila | Tier1_CR | Primary | RP1 | PP1 |
+| ... | ... | ... | ... | ... | ... | ... |
+
+What happened:
+- **3 site guarantees** (Manila, Cebu, Davao -- one each). Manila picked KPN-006 (Tier1, most recent). Cebu picked KPN-003 (Tier1). Davao picked KPN-007 (Tier3 -- the best available at that site).
+- **Primary batch** fills in the remaining unique site x RP x PP slots not already covered by guarantees.
+- **Secondary batch** contains duplicates (same site, same profile combination).
+
+The `selected.txt` file contains the Site_Guarantee and Primary isolate IDs only. The Secondary isolates are backup candidates if a Primary isolate cannot be sequenced.
+
+---
+
+## Legacy metadata format
+
+If your data is already in the column-mapped TSV/Excel format used by RITM, you can use the `--metadata` flag instead:
+
+```bash
+pixi run repseq june \
+  --metadata isolate_metadata.tsv \
+  --tier-col tier \
+  --resist-pattern-col resist_pattern \
+  --plasmids-col Plasmids \
+  --output-dir results/
+```
+
+The `--metadata` flag supports custom column names via `--id-col`, `--lab-col`, `--date-col`, etc. See `pixi run repseq june --help` for all options.
+
+---
+
+## Other subcommands
 
 ### `repseq select`
 
-Main selection command.
+Select N representative isolates from an assembly collection using phylogenetic + AMR diversity. This is a different algorithm from `june` -- it uses PARNAS k-medoids on a Mash distance tree combined with greedy set cover on AMR/replicon profiles.
 
+```bash
+pixi run repseq select --assemblies assemblies/ --n 20
 ```
-Options:
-  --assemblies DIR       Folder of .fasta/.fa/.fna assemblies              [required]
-
-  AMR gene features (pick one, or omit to auto-run ABRicate):
-  --hamronization FILE   hAMRonization TSV — any tool (AMRFinder+, RGI, ResFinder)
-  --kleborate FILE       Kleborate TSV — Klebsiella only, also adds ST/virulence metadata
-
-  Replicon/plasmid features (omit to auto-run ABRicate plasmidfinder db):
-  --plasmid-finder FILE  Pre-run PlasmidFinder merged TSV
-
-  Selection parameters:
-  --tree FILE            Pre-built Newick tree (skips mashtree)
-  --n INT                Number of samples to select             [default: 10]
-  --alpha FLOAT          Fraction of slots for phylo diversity, 0–1  [default: 0.5]
-                           alpha=1.0 → all slots filled by phylogeny only
-                           alpha=0.0 → all slots filled by AMR/plasmid diversity only
-  --cooccurrence         Add REP+AMR co-occurrence features (off by default)
-  --output-dir DIR       Output directory                        [default: .]
-```
-
-**If no AMR flags are given**, `repseq` runs `abricate --db ncbi` on all assemblies automatically. This works on any bacterial species.
-
-**If no replicon flag is given**, `repseq` runs `abricate --db plasmidfinder` automatically.
-
-**AMR input priority:** `--hamronization` > `--kleborate` > ABRicate auto-run.
-
-**Algorithm:**
-1. Build Mash distance tree with `mashtree` (skipped if `--tree` provided)
-2. Build binary AMR presence-absence matrix from best available source (hAMRonization → Kleborate → ABRicate ncbi)
-3. Add replicon features from best available source (`--plasmid-finder` → ABRicate plasmidfinder)
-4. Pad matrix so every assembly appears as a row, even if it had no AMR or replicon hits
-5. `n_phylo = round(alpha × n)` slots filled by PARNAS phylogenetic medoids
-6. `n_amr = n − n_phylo` slots filled by greedy set cover on the feature matrix
-7. Final selection = union of both sets
-
-**Outputs (all in `--output-dir`):**
-
-| File | Description |
-|------|-------------|
-| `selected.txt` | One sample ID per line — ready for sequencing request |
-| `report.tsv` | All samples: selected flag, slot type (phylo/amr/not_selected), AMR genes, replicons |
-| `coverage_summary.txt` | Human-readable % AMR gene and replicon coverage |
-| `abricate_ncbi.tsv` | Raw ABRicate AMR output (present only if auto-run) |
-| `abricate_plasmidfinder.tsv` | Raw ABRicate replicon output (present only if auto-run) |
-| `diversity_scores.csv` | PARNAS diversity covered at each n from 2 to n |
-| `elbow_plot.png` | Phylo diversity vs n — use to choose n |
-| `scatter_plot.png` | PCoA of Mash distances, selected samples starred |
-| `tree_heatmap.png` | Tree + AMR gene/replicon heatmap, selected samples in red |
 
 ### `repseq evaluate`
 
@@ -101,99 +218,77 @@ Score a selection against a complete ground-truth dataset.
 pixi run repseq evaluate \
   --selected selected.txt \
   --ground-truth complete_kleborate.tsv \
-  --tree complete.nwk \
-  --output-dir eval/
+  --tree complete.nwk
 ```
-
-Outputs `coverage_metrics.tsv` with:
-
-| Metric | Description |
-|--------|-------------|
-| `pct_faith_pd` | Faith's Phylogenetic Diversity covered (%) |
-| `max_minimax_dist` | Max distance from any unselected sample to its nearest selected neighbour — the quantity PARNAS directly optimises |
-| `mean_minimax_dist` | Mean of the above across all unselected samples |
-| `pct_amr_covered` | % of AMR gene features in the collection covered by selection |
-| `pct_replicons_covered` | % of replicon types covered |
-| `pct_st_covered` | % of MLST sequence types covered (Kleborate input only) |
-| `total_sts` / `covered_sts` | Raw counts behind `pct_st_covered` |
-| `random_mean_faith_pd_pct` | Mean Faith PD % of 100 random draws of the same N |
-| `random_mean_amr_pct` | Mean AMR coverage % of 100 random draws of the same N |
-
-The random baseline columns let you immediately quantify how much better repseq does than chance, which is the first thing a reviewer will ask for.
-
-**Faith's Phylogenetic Diversity (PD):** total branch length of the tree spanned by the selected samples as a fraction of the total branch length of the full collection. A selection covering 90% Faith PD represents 90% of the evolutionary history in the dataset.
-
-**Minimax distance:** the worst-case gap between any unselected sample and its nearest representative. A lower max minimax distance means more uniform coverage of the tree. This is what PARNAS directly minimises, so it is the most appropriate metric for evaluating the phylogenetic component of the selection.
 
 ### `repseq sweep`
 
-Run `select` + `evaluate` across α = 0.0, 0.1, … 1.0 and generate a Pareto curve.
+Run `select` + `evaluate` across alpha values from 0 to 1 and generate a Pareto curve.
 
 ```bash
 pixi run repseq sweep \
   --assemblies assemblies/ \
   --n 20 \
-  --ground-truth complete_kleborate.tsv \
-  --output-dir sweep/
+  --ground-truth complete_kleborate.tsv
 ```
 
-Outputs `pareto.tsv`, `pareto_plot.png`, and `pareto_note.txt`.
+### `repseq nsga3`
 
-**Important:** the sweep is a visualisation, not an optimisation. It does not tell you which α to use — that is a scientific decision based on your study goals. Read `pareto_note.txt` for guidance. As a rule, look for the elbow in `pareto_plot.png` — the point where adding more phylo budget stops improving Faith PD meaningfully. Use the `random_mean_faith_pd_pct` column to verify the chosen α beats random selection on both axes.
-
-## Choosing alpha
-
-| Goal | Suggested alpha |
-|------|----------------|
-| Outbreak reconstruction / phylogenetic breadth | 0.7 – 1.0 |
-| Balanced (default) | 0.5 |
-| AMR gene context and plasmid architecture | 0.2 – 0.4 |
-| Pure AMR/replicon diversity | 0.0 |
-
-Run `repseq sweep` with a ground-truth dataset to find the empirically best value for your collection. Check that it beats the random baseline on both axes before committing.
-
-## Co-occurrence features (`--cooccurrence`)
-
-By default, the feature matrix treats AMR gene presence and replicon presence independently. This means a sample with *IncFII* and *CTX-M-15* is indistinguishable from one where those two happen to be on different plasmids.
-
-The `--cooccurrence` flag adds combined features (e.g. `CO:IncFII+CTX-M-15`) that are 1 only when both are present in the same sample. This captures plasmid–gene linkage and rewards selecting samples that carry novel gene-on-plasmid combinations, which is often the point of long-read sequencing. It is off by default because it can expand the feature matrix substantially on large diverse collections.
-
-## Test data
+Multi-objective selection using NSGA-III (phylogenetic distance + AMR coverage + replicon coverage).
 
 ```bash
-cd test_data && bash download.sh
-pixi run repseq select --assemblies test_data/ --n 5
+pixi run repseq nsga3 --assemblies assemblies/ --n 20
 ```
 
-## Scientific notes
+### `repseq diversity-curve`
 
-**Is the greedy set cover optimal?** No — set cover is NP-hard. The greedy algorithm is guaranteed to find a solution within a factor of (1 − 1/e) ≈ 63% of the optimum (Nemhauser et al. 1978), and in practice performs much better on biological datasets where features cluster by lineage.
+Plot diversity saturation curves to help choose the number of representatives.
 
-**Why report both Faith PD and minimax distance?** PARNAS minimises the maximum distance from any sample to its nearest representative (minimax criterion), but Faith PD — the standard metric in the literature — measures something different (total branch length covered). Both are reported so you can evaluate the selection on the criterion it was optimised for *and* the criterion reviewers expect to see.
+```bash
+pixi run repseq diversity-curve --assemblies assemblies/
+```
 
-**Validating the tree:** `mashtree` produces a neighbour-joining tree from Mash sketches, which is fast but approximate. For publication, verify that the topology agrees with a core-genome SNP tree using your preferred aligner/phylogenetic tool, and use the SNP tree via `--tree` if they disagree substantially.
+---
 
-## Roadmap
+## Drug abbreviations
 
-- [x] PlasmidFinder integration for replicon typing (`--plasmid-finder`)
-- [x] hAMRonization support for AMRFinder+, ResFinder, RGI (`--hamronization`)
-- [ ] Ancestral state reconstruction mode (PastML) for state-change-based selection
-- [ ] Deduplication of near-identical assemblies before selection
-- [ ] ST-aware selection constraint ("must cover all STs with ≥2 samples")
+The following drug abbreviations are recognised for tier assignment and resistance profile grouping:
 
-## Background
+| Abbreviation | Drug | Class |
+|---|---|---|
+| AMP | Ampicillin | PEN (excluded from MDR count) |
+| AMC | Amoxicillin-clavulanate | BLI |
+| CZO | Cefazolin | 1GC |
+| CXA | Cefuroxime | 2GC |
+| FOX | Cefoxitin | 2GC |
+| CTT | Cefotetan | 2GC |
+| CRO | Ceftriaxone | 3GC |
+| CAZ | Ceftazidime | 3GC |
+| CTX | Cefotaxime | 3GC |
+| FEP | Cefepime | 4GC |
+| ETP | Ertapenem | CAR |
+| IPM | Imipenem | CAR |
+| MEM | Meropenem | CAR |
+| ATM | Aztreonam | MON |
+| GEN | Gentamicin | AMG |
+| TOB | Tobramycin | AMG |
+| AMK | Amikacin | AMG |
+| CIP | Ciprofloxacin | FQN |
+| LEV | Levofloxacin | FQN |
+| SXT | Trimethoprim-sulfamethoxazole | FOL |
+| TCY | Tetracycline | TET |
+| TGC | Tigecycline | TET |
+| COL | Colistin | COL |
+| TZP | Piperacillin-tazobactam | BLI |
+| SAM | Sulbactam-ampicillin | BLI |
 
-**PARNAS** — phylogenetic medoid selection:
-Trost et al. "PARNAS: Objectively Selecting the Most Representative Taxa on a Phylogeny." *Systematic Biology* 72(5):1052–1063, 2023. https://doi.org/10.1093/sysbio/syad028
+Carbapenem non-susceptibility (R or I to ETP, IPM, or MEM) triggers Tier 1. Colistin resistance triggers Tier 2. AMP resistance alone does not contribute to MDR counting (intrinsic in KPN).
 
-**ABRicate** — fast AMR and replicon screening against multiple databases:
-https://github.com/tseemann/abricate
+---
 
-**Kleborate** — AMR and virulence typing for Klebsiella (optional, enriches report):
-Lam et al. "A genomic surveillance framework and genotyping tool for Klebsiella pneumoniae and its related species complex." *Nature Communications* 12:4188, 2021. https://doi.org/10.1038/s41467-021-24448-3
+## References
 
-**PlasmidFinder** — plasmid replicon typing:
-Carattoli et al. "In Silico Detection and Typing of Plasmids using PlasmidFinder." *Antimicrobial Agents and Chemotherapy* 58(7):3895–3903, 2014. https://doi.org/10.1128/AAC.02412-14
-
-**hAMRonization** — standardised AMR tool output parsing:
-https://github.com/pha4ge/hAMRonization
+- Gayeta J, RITM Philippines, 2026. Hierarchical sampling prioritisation for long-read sequencing.
+- Magiorakos et al. "Multidrug-resistant, extensively drug-resistant and pandrug-resistant bacteria." *Clin Microbiol Infect* 18(3):268-281, 2012.
+- Trost et al. "PARNAS: Objectively Selecting the Most Representative Taxa on a Phylogeny." *Systematic Biology* 72(5):1052-1063, 2023.
+- Carattoli et al. "In Silico Detection and Typing of Plasmids using PlasmidFinder." *Antimicrobial Agents and Chemotherapy* 58(7):3895-3903, 2014.

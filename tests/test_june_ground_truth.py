@@ -93,7 +93,7 @@ class TestJuneGroundTruth:
         df["rp_code"] = assign_rp_codes(df, "resist_pattern", tier_col="tier")
         df["pp_code"] = assign_pp_codes(df, "plasmid_profile")
         df["rp_pp_combo"] = df["rp_code"] + "_" + df["pp_code"]
-        df["selection_batch"] = select_primary_batch(df)
+        df["selection_batch"] = select_primary_batch(df, guarantee_sites=False)
 
         # Compare batch assignment
         gt_batch = ground_truth.set_index("accession_no")["selection_batch"]
@@ -117,7 +117,7 @@ class TestJuneGroundTruth:
         df["rp_code"] = assign_rp_codes(df, "resist_pattern", tier_col="tier")
         df["pp_code"] = assign_pp_codes(df, "plasmid_profile")
         df["rp_pp_combo"] = df["rp_code"] + "_" + df["pp_code"]
-        df["selection_batch"] = select_primary_batch(df)
+        df["selection_batch"] = select_primary_batch(df, guarantee_sites=False)
 
         result = compute_priority_rank(df)
 
@@ -154,7 +154,7 @@ class TestJuneGroundTruth:
         df["rp_code"] = assign_rp_codes(df, "resist_pattern", tier_col="tier")
         df["pp_code"] = assign_pp_codes(df, "plasmid_profile")
         df["rp_pp_combo"] = df["rp_code"] + "_" + df["pp_code"]
-        df["selection_batch"] = select_primary_batch(df)
+        df["selection_batch"] = select_primary_batch(df, guarantee_sites=False)
 
         result = compute_priority_rank(df)
 
@@ -173,7 +173,7 @@ class TestJuneGroundTruth:
         df["rp_code"] = assign_rp_codes(df, "resist_pattern", tier_col="tier")
         df["pp_code"] = assign_pp_codes(df, "plasmid_profile")
         df["rp_pp_combo"] = df["rp_code"] + "_" + df["pp_code"]
-        df["selection_batch"] = select_primary_batch(df)
+        df["selection_batch"] = select_primary_batch(df, guarantee_sites=False)
 
         result = compute_priority_rank(df)
 
@@ -193,7 +193,7 @@ class TestJuneGroundTruth:
         df["rp_code"] = assign_rp_codes(df, "resist_pattern", tier_col="tier")
         df["pp_code"] = assign_pp_codes(df, "plasmid_profile")
         df["rp_pp_combo"] = df["rp_code"] + "_" + df["pp_code"]
-        df["selection_batch"] = select_primary_batch(df)
+        df["selection_batch"] = select_primary_batch(df, guarantee_sites=False)
 
         result = compute_priority_rank(df)
 
