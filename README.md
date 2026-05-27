@@ -210,6 +210,27 @@ Select N representative isolates from an assembly collection using phylogenetic 
 pixi run repseq select --assemblies assemblies/ --n 20
 ```
 
+#### Balancing AMR vs plasmid diversity (`--rep-weight`)
+
+By default, AMR gene features and replicon (inc type) features are weighted equally in the greedy set cover. If your collection has many more AMR gene features than inc types — which is typical — the algorithm will naturally fill its budget with AMR-rich isolates and may never pick up rare inc types.
+
+Use `--rep-weight` to shift the balance:
+
+```bash
+# Equal weight (default)
+pixi run repseq select --assemblies assemblies/ --n 20 --rep-weight 1.0
+
+# Favour plasmid diversity: each new inc type counts as 5 AMR genes
+pixi run repseq select --assemblies assemblies/ --n 20 --rep-weight 5.0
+
+# Pure AMR coverage: ignore plasmid features entirely
+pixi run repseq select --assemblies assemblies/ --n 20 --rep-weight 0.0
+```
+
+After each run, check `coverage_summary.txt` in the output directory to see AMR and replicon coverage percentages. If REP coverage is low, increase `--rep-weight`.
+
+See [`examples/rep_weight/compare_weights.py`](examples/rep_weight/compare_weights.py) for a worked example with simulated data showing the coverage trade-off across five weight values.
+
 ### `repseq evaluate`
 
 Score a selection against a complete ground-truth dataset.

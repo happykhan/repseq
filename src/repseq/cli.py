@@ -70,12 +70,21 @@ def cli():
     help="Weight for AMR distance in joint method (0=pure phylo, 1=pure AMR). Only used with --method joint.",
 )
 @click.option(
+    "--rep-weight",
+    "rep_weight",
+    default=1.0,
+    type=click.FloatRange(0.0),
+    help="Weight for replicon/plasmid features relative to AMR features in set cover "
+         "(default 1.0 = equal; >1.0 favours plasmid diversity; <1.0 favours AMR diversity). "
+         "Only used with --method split.",
+)
+@click.option(
     "--output-dir",
     default=".",
     type=click.Path(file_okay=False),
     help="Output directory (created if needed).",
 )
-def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, n_select, alpha, method, joint_weight, output_dir):
+def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, n_select, alpha, method, joint_weight, rep_weight, output_dir):
     """Select N representative isolates from an assembly collection."""
     run_select(
         assemblies_dir=assemblies,
@@ -88,6 +97,7 @@ def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv
         output_dir=output_dir,
         method=method,
         joint_weight=joint_weight,
+        rep_weight=rep_weight,
     )
 
 

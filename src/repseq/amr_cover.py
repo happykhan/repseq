@@ -422,11 +422,19 @@ def greedy_set_cover(
     binary_matrix: pd.DataFrame,
     exclude_samples: list[str],
     n_amr: int,
+    rep_weight: float = 1.0,
 ) -> list[str]:
     """Greedy set-cover selection for AMR + replicon diversity.
 
-    Picks the sample that adds the most uncovered features at each step,
-    excluding samples already selected by PARNAS.
+    Picks the sample with the highest weighted score of uncovered features at
+    each step, excluding samples already selected by PARNAS.
+
+    The score for each candidate is:
+        score = n_new_amr_features + rep_weight * n_new_rep_features
+
+    rep_weight=1.0 (default) treats AMR and replicon features equally.
+    rep_weight>1.0 biases selection toward plasmid/replicon diversity.
+    rep_weight<1.0 biases selection toward AMR gene diversity.
     """
     if n_amr <= 0:
         return []
@@ -452,13 +460,16 @@ def greedy_set_cover(
     selected: list[str] = []
     for _ in range(min(n_amr, len(available))):
         best_sample = None
-        best_new = -1
+        best_score = -1.0
         for sid in available:
             row = binary_matrix.loc[sid]
             present = set(row[row == 1].index.tolist())
-            new_features = len(present - covered)
-            if new_features > best_new:
-                best_new = new_features
+            new = present - covered
+            n_new_amr = sum(1 for f in new if f.startswith("AMR:"))
+            n_new_rep = sum(1 for f in new if f.startswith("REP:"))
+            score = n_new_amr + rep_weight * n_new_rep
+            if score > best_score:
+                best_score = score
                 best_sample = sid
         if best_sample is None:
             break

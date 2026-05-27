@@ -33,11 +33,14 @@ def run_select(
     abricate_replicons_path: str | None = None,
     method: str = "split",
     joint_weight: float = 0.5,
+    rep_weight: float = 1.0,
 ) -> list[str]:
     """Run the full selection pipeline.
 
     AMR feature priority: hAMRonization > Kleborate > ABRicate (auto-run).
     Replicon priority: --plasmid-finder > pre-run ABRicate > auto-run ABRicate.
+    rep_weight controls the balance between AMR and replicon features in set cover:
+      1.0 = equal weight (default), >1.0 = favour plasmid diversity, <1.0 = favour AMR.
 
     Returns list of selected sample IDs.
     """
@@ -103,7 +106,7 @@ def run_select(
             "info",
         )
         phylo_selected = run_parnas(tree_path, n_phylo, output_dir, n_total=n)
-        amr_selected = greedy_set_cover(binary_matrix, phylo_selected, n_amr)
+        amr_selected = greedy_set_cover(binary_matrix, phylo_selected, n_amr, rep_weight=rep_weight)
         all_selected = phylo_selected + amr_selected
         print_message(f"Final selection: {len(all_selected)} samples", "success")
         print_message(f"  Phylogenetic ({n_phylo}): {phylo_selected}", "info")

@@ -10,12 +10,10 @@ Method: Gayeta J, RITM Philippines, 2026.
 from __future__ import annotations
 
 import os
-from datetime import datetime
 
 import pandas as pd
 
 from repseq.log import print_message
-
 
 # ---------------------------------------------------------------------------
 # Tier assignment
@@ -153,7 +151,7 @@ def assign_rp_codes(
                     pattern_to_code[key] = f"RP{code_counter}"
                     code_counter += 1
         return pd.Series(
-            [pattern_to_code.get((t, p), "RP0") for t, p in zip(df[tier_col], df[pattern_col])],
+            [pattern_to_code.get((t, p), "RP0") for t, p in zip(df[tier_col], df[pattern_col], strict=False)],
             index=df.index,
         )
 
@@ -456,7 +454,7 @@ def run_ghru_prioritisation(
     print_message(f"Loaded {len(df)} isolates from {metadata_path}", "info")
 
     # Validate required columns
-    for col_name, col_val in [(id_col, "isolate_id"), (lab_col, "laboratory"), (date_col, "spec_date")]:
+    for col_name, _col_val in [(id_col, "isolate_id"), (lab_col, "laboratory"), (date_col, "spec_date")]:
         if col_name not in df.columns:
             raise ValueError(f"Required column '{col_name}' not found. Available: {list(df.columns)}")
 
