@@ -1,10 +1,10 @@
-"""June Gayeta's sampling prioritisation method for long-read sequencing.
+"""GHRU sampling prioritisation method for long-read sequencing.
 
 Hierarchical priority ranking based on resistance tier, site representation,
 and resistance/plasmid profile diversity. Designed for ARSRL (Philippines)
 surveillance collections.
 
-Reference: Gayeta J, RITM Philippines, 2026.
+Method: Gayeta J, RITM Philippines, 2026.
 """
 
 from __future__ import annotations
@@ -388,7 +388,7 @@ def parse_plasmid_profile(plasmids_str: str) -> str:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def run_june_prioritisation(
+def run_ghru_prioritisation(
     metadata_path: str,
     output_dir: str,
     id_col: str = "isolate_id",
@@ -403,7 +403,7 @@ def run_june_prioritisation(
     exclude_drugs: set[str] | None = None,
     guarantee_sites: bool = True,
 ) -> pd.DataFrame:
-    """Run June's prioritisation method.
+    """Run the GHRU prioritisation method.
 
     The metadata TSV/Excel must contain at minimum: isolate_id, laboratory,
     spec_date, and enough data to derive tier and resistance/plasmid profiles.
@@ -525,7 +525,7 @@ def run_june_prioritisation(
 
 
 def _write_outputs(df: pd.DataFrame, output_dir: str) -> None:
-    """Write all output files for the June method."""
+    """Write all output files."""
     # 1. Priority Full (all isolates ranked)
     full_path = os.path.join(output_dir, "priority_full.tsv")
     df.to_csv(full_path, sep="\t", index=False)
@@ -612,12 +612,12 @@ _CSV_REQUIRED_COLS = {"isolate_id", "site"}
 _CSV_TIER_DERIVATION_COLS = {"resist_pattern", "drug_classes", "carb_nonsus"}
 
 
-def run_june_from_csv(
+def run_ghru_from_csv(
     csv_path: str,
     output_dir: str,
     guarantee_sites: bool = True,
 ) -> pd.DataFrame:
-    """Run June's prioritisation from a single flat CSV file.
+    """Run the GHRU prioritisation from a single flat CSV file.
 
     The CSV must contain:
       - isolate_id

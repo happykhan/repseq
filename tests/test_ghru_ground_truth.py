@@ -1,4 +1,4 @@
-"""Validate repseq june method against June Gayeta's ground truth data.
+"""Validate repseq ghru method against ground truth data (Gayeta, RITM Philippines).
 
 This test reconstructs inputs from the May 22 reference spreadsheet, runs
 the algorithm, and checks that priority_rank matches for at least 90% of
@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from repseq.june import (
+from repseq.ghru import (
     assign_pp_codes,
     assign_rp_codes,
     compute_priority_rank,
@@ -25,7 +25,7 @@ GROUND_TRUTH_PATH = "/tmp/june-sampling/isolate_priority_longread_2026-05-22.xls
 
 @pytest.fixture()
 def ground_truth() -> pd.DataFrame:
-    """Load the ground truth data from June's spreadsheet."""
+    """Load the ground truth data from the reference spreadsheet."""
     if not os.path.exists(GROUND_TRUTH_PATH):
         pytest.skip(f"Ground truth file not found: {GROUND_TRUTH_PATH}")
     return pd.read_excel(GROUND_TRUTH_PATH, sheet_name="1_Priority_Full")
@@ -56,7 +56,7 @@ def _reconstruct_inputs(gt: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-class TestJuneGroundTruth:
+class TestGhruGroundTruth:
     """Validate against the May 22 reference spreadsheet."""
 
     def test_tier_assignment_matches(self, ground_truth: pd.DataFrame) -> None:

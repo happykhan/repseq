@@ -4,10 +4,10 @@ Select representative bacterial isolates for long-read sequencing from surveilla
 
 `repseq` has two main workflows:
 
-1. **`repseq june`** -- Hierarchical priority ranking for sentinel site surveillance (e.g. the ARSRL Kleb survey). This is the primary workflow documented below.
+1. **`repseq ghru`** -- Hierarchical priority ranking for sentinel site surveillance (e.g. the ARSRL Kleb survey). This is the primary workflow documented below.
 2. **`repseq select`** -- Phylogenetic + AMR diversity selection from assembly collections (research use).
 
-This README covers the `june` workflow. It will be reviewed by David and Aruka.
+This README covers the `ghru` workflow. It will be reviewed by David and Aruka.
 
 ---
 
@@ -24,14 +24,14 @@ pixi install
 Verify the install:
 
 ```bash
-pixi run repseq june --help
+pixi run repseq ghru --help
 ```
 
 ---
 
 ## Preparing your input CSV
 
-The simplest way to use `repseq june` is with a single flat CSV file. Each row is one isolate.
+The simplest way to use `repseq ghru` is with a single flat CSV file. Each row is one isolate.
 
 ### Required columns
 
@@ -90,7 +90,7 @@ Save this as `input.csv`.
 ### Step 1: Run the command
 
 ```bash
-pixi run repseq june --csv input.csv --output-dir results/
+pixi run repseq ghru --csv input.csv --output-dir results/
 ```
 
 This takes a few seconds. You will see a summary printed to the terminal.
@@ -129,7 +129,7 @@ For each site, repseq picks the highest-ranked isolate (best tier, then most fre
 To disable the site guarantee:
 
 ```bash
-pixi run repseq june --csv input.csv --no-guarantee-sites --output-dir results/
+pixi run repseq ghru --csv input.csv --no-guarantee-sites --output-dir results/
 ```
 
 ### Primary batch (1 per site per profile combination)
@@ -161,7 +161,7 @@ All isolates (Site_Guarantee, Primary, and Secondary) are assigned a priority ra
 Using the 8-isolate CSV from above:
 
 ```bash
-pixi run repseq june --csv input.csv --output-dir example_results/
+pixi run repseq ghru --csv input.csv --output-dir example_results/
 ```
 
 Expected output in `priority_full.tsv` (simplified):
@@ -188,7 +188,7 @@ The `selected.txt` file contains the Site_Guarantee and Primary isolate IDs only
 If your data is already in the column-mapped TSV/Excel format used by RITM, you can use the `--metadata` flag instead:
 
 ```bash
-pixi run repseq june \
+pixi run repseq ghru \
   --metadata isolate_metadata.tsv \
   --tier-col tier \
   --resist-pattern-col resist_pattern \
@@ -196,7 +196,7 @@ pixi run repseq june \
   --output-dir results/
 ```
 
-The `--metadata` flag supports custom column names via `--id-col`, `--lab-col`, `--date-col`, etc. See `pixi run repseq june --help` for all options.
+The `--metadata` flag supports custom column names via `--id-col`, `--lab-col`, `--date-col`, etc. See `pixi run repseq ghru --help` for all options.
 
 ---
 
@@ -204,7 +204,7 @@ The `--metadata` flag supports custom column names via `--id-col`, `--lab-col`, 
 
 ### `repseq select`
 
-Select N representative isolates from an assembly collection using phylogenetic + AMR diversity. This is a different algorithm from `june` -- it uses PARNAS k-medoids on a Mash distance tree combined with greedy set cover on AMR/replicon profiles.
+Select N representative isolates from an assembly collection using phylogenetic + AMR diversity. This is a different algorithm from `ghru` -- it uses PARNAS k-medoids on a Mash distance tree combined with greedy set cover on AMR/replicon profiles.
 
 ```bash
 pixi run repseq select --assemblies assemblies/ --n 20

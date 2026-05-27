@@ -336,10 +336,10 @@ def nsga3(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv,
     type=click.Path(file_okay=False),
     help="Output directory (created if needed).",
 )
-def june(csv_path, metadata, guarantee_sites, id_col, lab_col, date_col,
+def ghru(csv_path, metadata, guarantee_sites, id_col, lab_col, date_col,
          tier_col, resist_pattern_col, r_drugs_list_col, plasmids_col,
          carb_nonsus_col, colistin_r_col, exclude_drugs_str, output_dir):
-    """Prioritise isolates for long-read sequencing using June Gayeta's method.
+    """Prioritise isolates for long-read sequencing using the GHRU method.
 
     Use --csv for the simple flat CSV format (recommended), or --metadata for
     the legacy column-mapping format. One of --csv or --metadata is required.
@@ -350,21 +350,21 @@ def june(csv_path, metadata, guarantee_sites, id_col, lab_col, date_col,
         raise click.UsageError("One of --csv or --metadata is required.")
 
     if csv_path:
-        from repseq.june import run_june_from_csv
+        from repseq.ghru import run_ghru_from_csv
 
-        run_june_from_csv(
+        run_ghru_from_csv(
             csv_path=csv_path,
             output_dir=output_dir,
             guarantee_sites=guarantee_sites,
         )
     else:
-        from repseq.june import run_june_prioritisation
+        from repseq.ghru import run_ghru_prioritisation
 
         exclude_drugs = None
         if exclude_drugs_str:
             exclude_drugs = {d.strip() for d in exclude_drugs_str.split(",") if d.strip()}
 
-        run_june_prioritisation(
+        run_ghru_prioritisation(
             metadata_path=metadata,
             output_dir=output_dir,
             id_col=id_col,

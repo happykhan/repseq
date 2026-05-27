@@ -1,4 +1,4 @@
-"""Tests for repseq.june -- June Gayeta's sampling prioritisation method."""
+"""Tests for repseq.ghru -- GHRU sampling prioritisation method."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from repseq.june import (
+from repseq.ghru import (
     TIER_ORDER,
     assign_pp_codes,
     assign_rp_codes,
@@ -15,7 +15,7 @@ from repseq.june import (
     compute_priority_rank,
     parse_plasmid_profile,
     parse_resist_pattern,
-    run_june_from_csv,
+    run_ghru_from_csv,
     select_primary_batch,
     select_site_guarantees,
 )
@@ -426,8 +426,8 @@ class TestSiteGuarantee:
 # ---------------------------------------------------------------------------
 
 
-class TestRunJuneFromCsv:
-    """Tests for run_june_from_csv -- flat CSV input format."""
+class TestRunGhruFromCsv:
+    """Tests for run_ghru_from_csv -- flat CSV input format."""
 
     def _write_csv(self, tmp_path: Path, content: str) -> Path:
         csv_path = tmp_path / "input.csv"
@@ -443,7 +443,7 @@ class TestRunJuneFromCsv:
             "ISO003,Davao,Tier4_pansusceptible,\n"
         ))
         out = tmp_path / "out"
-        result = run_june_from_csv(str(csv), str(out))
+        result = run_ghru_from_csv(str(csv), str(out))
         assert len(result) == 3
         assert (out / "priority_full.tsv").exists()
         assert (out / "primary_batch.tsv").exists()
@@ -459,7 +459,7 @@ class TestRunJuneFromCsv:
             "ISO004,Manila,Tier2_MDR,IncX4\n"
         ))
         out = tmp_path / "out"
-        result = run_june_from_csv(str(csv), str(out))
+        result = run_ghru_from_csv(str(csv), str(out))
         guarantee = result[result["selection_batch"] == "Site_Guarantee"]
         sites = set(guarantee["laboratory"])
         assert sites == {"Manila", "Cebu", "Davao"}
@@ -472,7 +472,7 @@ class TestRunJuneFromCsv:
             "ISO002,Cebu,Tier2_MDR,IncX4,RP2,PP2\n"
         ))
         out = tmp_path / "out"
-        result = run_june_from_csv(str(csv), str(out))
+        result = run_ghru_from_csv(str(csv), str(out))
         assert result[result["isolate_id"] == "ISO001"].iloc[0]["rp_code"] == "RP1"
         assert result[result["isolate_id"] == "ISO002"].iloc[0]["pp_code"] == "PP2"
 
@@ -484,7 +484,7 @@ class TestRunJuneFromCsv:
             "ISO002,Manila,Tier1_CR,IncFIB(K),2024-01-01\n"
         ))
         out = tmp_path / "out"
-        result = run_june_from_csv(str(csv), str(out))
+        result = run_ghru_from_csv(str(csv), str(out))
         # Both have the same profile, same site, same tier.
         # ISO001 (more recent) should rank higher
         iso1_rank = result[result["isolate_id"] == "ISO001"].iloc[0]["priority_rank"]
@@ -498,7 +498,7 @@ class TestRunJuneFromCsv:
             "ISO001,Manila,Tier1_CR,IncFIB(K)\n"
         ))
         out = tmp_path / "out"
-        result = run_june_from_csv(str(csv), str(out))
+        result = run_ghru_from_csv(str(csv), str(out))
         assert len(result) == 1
 
     def test_csv_missing_required_column_raises(self, tmp_path: Path) -> None:
@@ -509,7 +509,7 @@ class TestRunJuneFromCsv:
         ))
         out = tmp_path / "out"
         with pytest.raises(ValueError, match="site"):
-            run_june_from_csv(str(csv), str(out))
+            run_ghru_from_csv(str(csv), str(out))
 
     def test_csv_no_guarantee(self, tmp_path: Path) -> None:
         """With guarantee_sites=False, no Site_Guarantee labels."""
@@ -519,7 +519,7 @@ class TestRunJuneFromCsv:
             "ISO002,Cebu,Tier4_pansusceptible,\n"
         ))
         out = tmp_path / "out"
-        result = run_june_from_csv(str(csv), str(out), guarantee_sites=False)
+        result = run_ghru_from_csv(str(csv), str(out), guarantee_sites=False)
         assert "Site_Guarantee" not in result["selection_batch"].values
 
     def test_csv_tier_derivation(self, tmp_path: Path) -> None:
@@ -531,7 +531,7 @@ class TestRunJuneFromCsv:
             "ISO003,Davao,AMP;ETP,1,True,IncX4\n"
         ))
         out = tmp_path / "out"
-        result = run_june_from_csv(str(csv), str(out))
+        result = run_ghru_from_csv(str(csv), str(out))
         # ISO003 has carb_nonsus=True -> Tier1_CR
         assert result[result["isolate_id"] == "ISO003"].iloc[0]["tier"] == "Tier1_CR"
         # ISO001 has 3 non-PEN classes -> Tier2_MDR
@@ -547,5 +547,5 @@ class TestRunJuneFromCsv:
             "ISO001\tManila\tTier1_CR\tIncFIB(K)\n"
         )
         out = tmp_path / "out"
-        result = run_june_from_csv(str(tsv_path), str(out))
+        result = run_ghru_from_csv(str(tsv_path), str(out))
         assert len(result) == 1
