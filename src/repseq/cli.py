@@ -70,12 +70,21 @@ def cli():
     help="Weight for AMR distance in joint method (0=pure phylo, 1=pure AMR). Only used with --method joint.",
 )
 @click.option(
+    "--rep-weight",
+    "rep_weight",
+    default=1.0,
+    type=click.FloatRange(0.0),
+    help="Weight for replicon/plasmid features relative to AMR features in set cover "
+         "(default 1.0 = equal; >1.0 favours plasmid diversity; <1.0 favours AMR diversity). "
+         "Only used with --method split.",
+)
+@click.option(
     "--output-dir",
     default=".",
     type=click.Path(file_okay=False),
     help="Output directory (created if needed).",
 )
-def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, n_select, alpha, method, joint_weight, output_dir):
+def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv, n_select, alpha, method, joint_weight, rep_weight, output_dir):
     """Select N representative isolates from an assembly collection."""
     run_select(
         assemblies_dir=assemblies,
@@ -88,6 +97,7 @@ def select(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv
         output_dir=output_dir,
         method=method,
         joint_weight=joint_weight,
+        rep_weight=rep_weight,
     )
 
 
@@ -247,6 +257,138 @@ def nsga3(assemblies, tree, kleborate_tsv, plasmidfinder_tsv, hamronization_tsv,
         n_gen=generations,
         seed=seed,
     )
+
+
+@cli.command()
+@click.option(
+    "--csv",
+    "csv_path",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Flat CSV/TSV input file (columns: isolate_id, site, tier, replicons). "
+         "Primary entry point — see README for format details.",
+)
+@click.option(
+    "--metadata",
+    default=None,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Metadata TSV or Excel file with isolate data (legacy format with column mapping).",
+)
+@click.option(
+    "--guarantee-sites/--no-guarantee-sites",
+    "guarantee_sites",
+    default=True,
+    help="Guarantee at least 1 isolate per sentinel site (default: on).",
+)
+@click.option(
+    "--id-col",
+    "id_col",
+    default="isolate_id",
+    help="Column name for isolate ID (--metadata mode only).",
+)
+@click.option(
+    "--lab-col",
+    "lab_col",
+    default="laboratory",
+    help="Column name for laboratory/site (--metadata mode only).",
+)
+@click.option(
+    "--date-col",
+    "date_col",
+    default="spec_date",
+    help="Column name for specimen date (--metadata mode only).",
+)
+@click.option(
+    "--tier-col",
+    "tier_col",
+    default=None,
+    help="Column with pre-assigned tier (Tier1_CR, Tier2_MDR, etc.).",
+)
+@click.option(
+    "--resist-pattern-col",
+    "resist_pattern_col",
+    default=None,
+    help="Column with semicolon-separated resistant drug abbreviations.",
+)
+@click.option(
+    "--r-drugs-list-col",
+    "r_drugs_list_col",
+    default=None,
+    help="Column with comma-separated resistant drugs (raw).",
+)
+@click.option(
+    "--plasmids-col",
+    "plasmids_col",
+    default=None,
+    help="Column with comma-separated plasmid replicons.",
+)
+@click.option(
+    "--carb-nonsus-col",
+    "carb_nonsus_col",
+    default=None,
+    help="Column with boolean for carbapenem non-susceptibility.",
+)
+@click.option(
+    "--colistin-r-col",
+    "colistin_r_col",
+    default=None,
+    help="Column with boolean for colistin resistance.",
+)
+@click.option(
+    "--exclude-drugs",
+    "exclude_drugs_str",
+    default=None,
+    help="Comma-separated drugs to exclude from resist_pattern (e.g. SAM,CTT,TGC).",
+)
+@click.option(
+    "--output-dir",
+    default=".",
+    type=click.Path(file_okay=False),
+    help="Output directory (created if needed).",
+)
+def ghru(csv_path, metadata, guarantee_sites, id_col, lab_col, date_col,
+         tier_col, resist_pattern_col, r_drugs_list_col, plasmids_col,
+         carb_nonsus_col, colistin_r_col, exclude_drugs_str, output_dir):
+    """Prioritise isolates for long-read sequencing using the GHRU method.
+
+    Use --csv for the simple flat CSV format (recommended), or --metadata for
+    the legacy column-mapping format. One of --csv or --metadata is required.
+    """
+    if csv_path and metadata:
+        raise click.UsageError("Use --csv or --metadata, not both.")
+    if not csv_path and not metadata:
+        raise click.UsageError("One of --csv or --metadata is required.")
+
+    if csv_path:
+        from repseq.ghru import run_ghru_from_csv
+
+        run_ghru_from_csv(
+            csv_path=csv_path,
+            output_dir=output_dir,
+            guarantee_sites=guarantee_sites,
+        )
+    else:
+        from repseq.ghru import run_ghru_prioritisation
+
+        exclude_drugs = None
+        if exclude_drugs_str:
+            exclude_drugs = {d.strip() for d in exclude_drugs_str.split(",") if d.strip()}
+
+        run_ghru_prioritisation(
+            metadata_path=metadata,
+            output_dir=output_dir,
+            id_col=id_col,
+            lab_col=lab_col,
+            date_col=date_col,
+            tier_col=tier_col,
+            resist_pattern_col=resist_pattern_col,
+            r_drugs_list_col=r_drugs_list_col,
+            plasmids_col=plasmids_col,
+            carb_nonsus_col=carb_nonsus_col,
+            colistin_r_col=colistin_r_col,
+            exclude_drugs=exclude_drugs,
+            guarantee_sites=guarantee_sites,
+        )
 
 
 @cli.command(name="diversity-curve")

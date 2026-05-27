@@ -123,6 +123,51 @@ class TestGreedySetCover:
         selected = greedy_set_cover(m, ["s1", "s2", "s3"], 2)
         assert selected == []
 
+    def test_rep_weight_default_unchanged(self) -> None:
+        """rep_weight=1.0 should not change existing behaviour."""
+        m = self._make_matrix()
+        default = greedy_set_cover(m, [], 2)
+        weighted = greedy_set_cover(m, [], 2, rep_weight=1.0)
+        assert default == weighted
+
+    def test_rep_weight_favours_plasmid(self) -> None:
+        """High rep_weight should prefer the sample with a unique replicon when scores are otherwise tied.
+
+        Matrix:
+          s_amr  — 3 AMR features, 0 REP features  → score(rep_weight=5) = 3
+          s_rep  — 1 AMR feature,  2 REP features   → score(rep_weight=5) = 1 + 5*2 = 11
+        With equal weight (1.0): s_amr score=3, s_rep score=3 (tie resolved by order).
+        With high weight (5.0): s_rep wins clearly.
+        """
+        m = pd.DataFrame(
+            {
+                "AMR:Bla:TEM-1": [1, 1],
+                "AMR:Bla:SHV-11": [1, 0],
+                "AMR:AGly:aac": [1, 0],
+                "REP:IncFII": [0, 1],
+                "REP:IncX4": [0, 1],
+            },
+            index=["s_amr", "s_rep"],
+        )
+        # With high rep_weight, s_rep (2 REP features) should be preferred
+        selected = greedy_set_cover(m, [], n_amr=1, rep_weight=5.0)
+        assert selected == ["s_rep"]
+
+    def test_rep_weight_zero_ignores_plasmid(self) -> None:
+        """rep_weight=0.0 means REP features contribute nothing; AMR-rich sample wins."""
+        m = pd.DataFrame(
+            {
+                "AMR:Bla:TEM-1": [1, 0],
+                "AMR:Bla:SHV-11": [1, 0],
+                "REP:IncFII": [0, 1],
+                "REP:IncX4": [0, 1],
+                "REP:IncI1": [0, 1],
+            },
+            index=["s_amr", "s_rep"],
+        )
+        selected = greedy_set_cover(m, [], n_amr=1, rep_weight=0.0)
+        assert selected == ["s_amr"]
+
 
 # ---------------------------------------------------------------------------
 # _col_drug_class (from plots)
